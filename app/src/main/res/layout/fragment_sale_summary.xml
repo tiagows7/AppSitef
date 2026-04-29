@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tvTotalizadorVenda"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Totalizador: R$ 0,00"
+        android:textSize="18sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/etOperadorVenda"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:hint="Operador da venda"
+        android:inputType="text" />
+
+    <EditText
+        android:id="@+id/etValorVenda"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:hint="Valor da venda"
+        android:inputType="numberDecimal" />
+
+    <Button
+        android:id="@+id/btnFecharVenda"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Fechar venda" />
+
+</LinearLayout>
