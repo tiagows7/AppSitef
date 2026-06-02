@@ -8,54 +8,45 @@
     android:padding="20dp">
 
     <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbarAdministrativeTef"
+        android:id="@+id/toolbarTefTransaction"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
-        app:title="Administrativo TEF"
+        app:title="Transacao TEF"
         app:titleCentered="true" />
 
     <com.google.android.material.card.MaterialCardView
         style="@style/Widget.AppSiTefSmartPos.Card"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         app:contentPadding="16dp">
 
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:orientation="vertical">
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReimpressao"
-                style="@style/Widget.AppSiTefSmartPos.Button.Primary"
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="Reimpressao" />
+                android:text="Fluxo TEF em andamento"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvTefStatus"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_marginTop="16dp"
+                android:layout_weight="1"
+                android:text="Aguardando retorno do CliSiTef..." />
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnCancelamento"
+                android:id="@+id/btnCancelarTef"
                 style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="Cancelamento" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnFinalizarTerminal"
-                style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="Finalizar Terminal" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnEnviarLog"
-                style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Enviar Log" />
+                android:text="Cancelar transacao" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

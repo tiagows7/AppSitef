@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import com.google.android.material.card.MaterialCardView
 import androidx.recyclerview.widget.RecyclerView
 import com.appsitef.smartpos.R
 import com.appsitef.smartpos.sales.model.Abastecimento
@@ -41,19 +42,25 @@ class AbastecimentoAdapter(
     inner class AbastecimentoViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val ivFuel: ImageView = itemView.findViewById(R.id.ivFuelIcon)
         private val tvBico: TextView = itemView.findViewById(R.id.tvBico)
+        private val tvProduto: TextView = itemView.findViewById(R.id.tvProduto)
+        private val tvHora: TextView = itemView.findViewById(R.id.tvHora)
         private val tvQuantidade: TextView = itemView.findViewById(R.id.tvQuantidade)
         private val tvValorUnitario: TextView = itemView.findViewById(R.id.tvValorUnitario)
         private val tvValorTotal: TextView = itemView.findViewById(R.id.tvValorTotal)
         private val tvOperador: TextView = itemView.findViewById(R.id.tvOperador)
+        private val card: MaterialCardView = itemView as MaterialCardView
 
         fun bind(item: Abastecimento, isSelected: Boolean) {
             ivFuel.setImageResource(R.drawable.ic_fuel_pump)
-            tvBico.text = "Bico ${item.numeroBico}"
-            tvQuantidade.text = "Qtd: ${formatDecimal(item.quantidade)} L"
-            tvValorUnitario.text = "Unit: R$ ${formatDecimal(item.valorUnitario)}"
-            tvValorTotal.text = "Total: R$ ${formatDecimal(item.valorTotal)}"
-            tvOperador.text = "Operador: ${item.operador}"
+            tvBico.text = "Bomba ${item.ababmb}"
+            tvProduto.text = item.abaprodes
+            tvHora.text = "Hora: ${item.abahoradia}"
+            tvQuantidade.text = "Qtd: ${formatDecimal(item.abaqtd)} L"
+            tvValorUnitario.text = "Unit: R$ ${formatDecimal(item.abavlruni)}"
+            tvValorTotal.text = "R$ ${formatDecimal(item.abatot)}"
+            tvOperador.text = "Operador: ${item.abaopedes}"
             itemView.isSelected = isSelected
+            card.strokeWidth = if (isSelected) 3 else 1
 
             itemView.setOnClickListener {
                 selectedId = item.id

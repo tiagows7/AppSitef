@@ -11,6 +11,9 @@ class AdministrativeTefActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_administrative_tef)
+        setSupportActionBar(findViewById(R.id.toolbarAdministrativeTef))
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowHomeEnabled(true)
 
         findViewById<Button>(R.id.btnReimpressao).setOnClickListener {
             showMessage("Reimpressao acionada")
@@ -32,5 +35,10 @@ class AdministrativeTefActivity : AppCompatActivity() {
 
     private fun showMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
     }
 }

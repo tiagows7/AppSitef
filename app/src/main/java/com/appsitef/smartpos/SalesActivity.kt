@@ -15,6 +15,9 @@ class SalesActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_sales)
+        setSupportActionBar(findViewById(R.id.toolbarSales))
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setDisplayShowHomeEnabled(true)
 
         tabLayout = findViewById(R.id.tabSales)
         viewPager = findViewById(R.id.vpSales)
@@ -33,5 +36,10 @@ class SalesActivity : AppCompatActivity() {
         if (index in 0..2) {
             viewPager.currentItem = index
         }
+    }
+
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
     }
 }

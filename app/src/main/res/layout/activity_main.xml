@@ -1,29 +1,72 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:gravity="center"
     android:orientation="vertical"
-    android:padding="24dp">
+    android:background="?attr/colorSurface"
+    android:padding="20dp">
 
-    <Button
-        android:id="@+id/btnVenda"
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbarMain"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
-        android:text="Venda" />
+        app:title="AppSiTef SmartPOS"
+        app:titleCentered="true" />
 
-    <Button
-        android:id="@+id/btnAdministrativoTef"
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.AppSiTefSmartPos.Card"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:text="Administrativo TEF" />
+        android:layout_marginTop="8dp"
+        app:contentPadding="16dp">
 
-    <Button
-        android:id="@+id/btnConfiguracao"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Configuracao" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
 
+            <ImageView
+                android:id="@+id/ivBrandLogo"
+                android:layout_width="220dp"
+                android:layout_height="110dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:adjustViewBounds="true"
+                android:contentDescription="Logo Modulo Info"
+                android:scaleType="fitCenter"
+                android:src="@drawable/logo_modulo_info" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnVenda"
+                style="@style/Widget.AppSiTefSmartPos.Button.MainMenu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Venda"
+                app:icon="@drawable/ic_menu_venda"
+                app:iconGravity="textStart"
+                app:iconTint="?attr/colorOnPrimary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnAdministrativoTef"
+                style="@style/Widget.AppSiTefSmartPos.Button.MainMenu.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Administrativo TEF"
+                app:icon="@drawable/ic_menu_administrativo"
+                app:iconGravity="textStart" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnConfiguracao"
+                style="@style/Widget.AppSiTefSmartPos.Button.MainMenu.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Configuracao"
+                app:icon="@drawable/ic_menu_configuracao"
+                app:iconGravity="textStart" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
 </LinearLayout>

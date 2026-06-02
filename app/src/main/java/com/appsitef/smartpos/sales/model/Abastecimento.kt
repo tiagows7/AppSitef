@@ -2,9 +2,15 @@ package com.appsitef.smartpos.sales.model
 
 data class Abastecimento(
     val id: String,
-    val numeroBico: String,
-    val quantidade: Double,
-    val valorUnitario: Double,
-    val valorTotal: Double,
-    val operador: String
+    val ababmb: String,
+    val abaqtd: Double,
+    val abavlruni: Double,
+    val abatot: Double,
+    val abanum: Int,
+    val abaaba: Int,
+    val abaopeaba: String,
+    val abaopedes: String,
+    val abaprodes: String,
+    val abahoradia: String,
+    val abapro: Int
 )

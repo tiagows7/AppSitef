@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AppSiTef SmartPOS</string>
+    <string name="wait_message_default">Aguarde, em processo…</string>
+    <string name="wait_message_saving_configuration">Salvando configuração…</string>
 </resources>

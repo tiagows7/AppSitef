@@ -3,12 +3,21 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:background="?attr/colorSurface">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbarSales"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:title="Venda"
+        app:titleCentered="true" />
 
     <com.google.android.material.tabs.TabLayout
         android:id="@+id/tabSales"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        app:tabIndicatorFullWidth="false"
         app:tabMode="fixed" />
 
     <androidx.viewpager2.widget.ViewPager2
