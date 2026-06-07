@@ -1,6 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AppSiTef SmartPOS</string>
+    <string name="app_name">SISCOM-POS</string>
     <string name="wait_message_default">Aguarde, em processo…</string>
     <string name="wait_message_saving_configuration">Salvando configuração…</string>
+    <string name="wait_message_searching_fueling">Pesquisando abastecimentos…</string>
+    <string name="wait_message_registering_fueling">Registrando abastecimento…</string>
+    <string name="wait_message_releasing_fueling">Liberando abastecimento…</string>
+    <string name="wait_message_searching_customer">Pesquisando cliente…</string>
+    <string name="error_customer_code_required">Informe o código do cliente.</string>
+    <string name="tef_transaction_amount_label">Valor da transação</string>
+    <string name="main_setup_hint">Configure o terminal para liberar Venda e Administrativo TEF.</string>
+    <string name="cancel_sale">Cancelar venda</string>
+    <string name="cancel_sale_message">Deseja cancelar a venda e limpar os dados selecionados?</string>
+    <string name="sales_total_empty">Nenhum abastecimento selecionado</string>
+    <string name="sales_total_empty_amount">R$ 0,00</string>
+    <string name="sales_total_count_one">1 abastecimento selecionado</string>
+    <string name="sales_total_count_many">%1$d abastecimentos selecionados</string>
+    <string name="sales_total_amount">R$ %1$s</string>
+    <string name="sales_discount_amount">DESCONTO R$ %1$s</string>
+    <string name="sales_net_total_amount">TOTAL R$ %1$s</string>
+    <string name="wait_message_searching_promo">Pesquisando cupom…</string>
+    <string name="error_promo_code_required">Informe o código do cupom.</string>
+    <string name="error_promo_code_not_searched">Código não pesquisado.</string>
+    <string name="error_promo_cnpj_not_configured">Configure o CNPJ do posto em Configuração.</string>
+    <string name="yes">Sim</string>
+    <string name="no">Não</string>
+    <string name="back">Voltar</string>
+    <string name="error_sale_value_required">Informe o valor da venda.</string>
+    <string name="error_sale_value_invalid">Informe um valor de venda maior que zero.</string>
+    <string name="error_invalid_cpf_cnpj">CPF ou CNPJ inválido.</string>
+    <string name="error_sale_operator_required">Informe o operador da venda.</string>
+    <string name="sale_in_progress">Venda em andamento. Cancele a venda para sair.</string>
+    <string name="sale_completed_reset">Venda concluída. Pronto para nova venda.</string>
+    <string name="tef_operator_message_title">Mensagem ao operador</string>
+    <string name="tef_operator_message_waiting">Aguardando instruções do SiTef…</string>
+    <string name="tef_cancel_pending">Cancelando transação pendente…</string>
+    <string name="tef_log_title">Histórico da transação</string>
+    <string name="tef_pix_qr_title">Pagamento PIX</string>
+    <string name="tef_pix_qr_hint">Escaneie o QR Code com o app do seu banco</string>
+    <string name="tef_pix_qr_content_description">QR Code PIX para pagamento</string>
+    <string name="tef_print_customer_title">Via do cliente</string>
+    <string name="tef_print_customer_message">Deseja imprimir via do cliente?</string>
+    <string name="tef_printing_merchant">Imprimindo via do estabelecimento…</string>
+    <string name="tef_printing_customer">Imprimindo via do cliente…</string>
 </resources>

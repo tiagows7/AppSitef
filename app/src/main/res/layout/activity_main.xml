@@ -12,7 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
-        app:title="AppSiTef SmartPOS"
+        app:title="@string/app_name"
         app:titleCentered="true" />
 
     <com.google.android.material.card.MaterialCardView
@@ -37,6 +37,17 @@
                 android:contentDescription="Logo Modulo Info"
                 android:scaleType="fitCenter"
                 android:src="@drawable/logo_modulo_info" />
+
+            <TextView
+                android:id="@+id/tvSetupHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:gravity="center"
+                android:text="@string/main_setup_hint"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="14sp"
+                android:visibility="gone" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnVenda"

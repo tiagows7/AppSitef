@@ -12,5 +12,6 @@ data class Abastecimento(
     val abaopedes: String,
     val abaprodes: String,
     val abahoradia: String,
-    val abapro: Int
+    val abapro: Int,
+    val abadesconto: Double = 0.0
 )

@@ -37,7 +37,10 @@
                             android:id="@+id/etCodigoCliente"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:inputType="number" />
+                            android:digits="0123456789"
+                            android:importantForAutofill="no"
+                            android:inputType="number"
+                            android:maxLength="8" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.button.MaterialButton
@@ -49,7 +52,18 @@
                         android:text="Pesquisar" />
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/tvNomeCliente"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
                 <com.google.android.material.textfield.TextInputLayout
+                    android:id="@+id/tilCpfCnpj"
                     style="@style/Widget.AppSiTefSmartPos.TextInput"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -60,7 +74,8 @@
                         android:id="@+id/etCpfCnpj"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="text" />
+                        android:importantForAutofill="no"
+                        android:inputType="number" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -88,7 +103,10 @@
                         android:id="@+id/etKm"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:inputType="number" />
+                        android:digits="0123456789"
+                        android:importantForAutofill="no"
+                        android:inputType="number"
+                        android:maxLength="7" />
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <LinearLayout
@@ -108,7 +126,10 @@
                             android:id="@+id/etCodigoAppPromo"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:inputType="text" />
+                            android:digits="0123456789"
+                            android:importantForAutofill="no"
+                            android:inputType="number"
+                            android:maxLength="9" />
                     </com.google.android.material.textfield.TextInputLayout>
 
                     <com.google.android.material.button.MaterialButton

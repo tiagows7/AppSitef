@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/cardTefOverlay"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_gravity="bottom"
+    android:layout_margin="12dp"
+    android:visibility="gone"
+    app:cardElevation="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Transação TEF"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvTefStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:maxHeight="160dp"
+            android:scrollbars="vertical"
+            android:text="Aguardando CliSiTef…" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCancelarTef"
+            style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Cancelar transação" />
+
+    </LinearLayout>
+
+</com.google.android.material.card.MaterialCardView>

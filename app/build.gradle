@@ -23,6 +23,10 @@ android {
         versionCode 1
         versionName "1.0"
 
+        ndk {
+            abiFilters "armeabi-v7a"
+        }
+
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -53,6 +57,51 @@ android {
     kotlinOptions {
         jvmTarget = '17'
     }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+            // Manual v2.21 §4: não fazer strip em libclisitef.so (evita erro -158 de assinatura).
+            keepDebugSymbols += "**/libclisitef.so"
+        }
+    }
+}
+
+tasks.register("prepareTefAssets") {
+    group = "build"
+    description = "Copia clsit.ini e cheques.ini de app/tef-config para assets do APK"
+    doLast {
+        def tefConfigDir = file("tef-config")
+        def assetsDir = file("src/main/assets")
+        assetsDir.mkdirs()
+
+        def clsit = new File(tefConfigDir, "clsit.ini")
+        if (clsit.exists()) {
+            copy {
+                from clsit
+                into assetsDir
+                rename { "CLSIT" }
+            }
+        }
+
+        def cheques = new File(tefConfigDir, "cheques.ini")
+        if (cheques.exists()) {
+            copy {
+                from cheques
+                into assetsDir
+                rename { "cheques.ini" }
+            }
+            copy {
+                from cheques
+                into assetsDir
+                rename { "Cheque.ini" }
+            }
+        }
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("prepareTefAssets")
 }
 
 dependencies {
@@ -78,6 +127,8 @@ dependencies {
     implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.4'
     implementation 'androidx.lifecycle:lifecycle-livedata-ktx:2.8.4'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.retrofit2:retrofit:2.11.0'
     implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
+    implementation 'com.google.zxing:core:3.5.3'
 }

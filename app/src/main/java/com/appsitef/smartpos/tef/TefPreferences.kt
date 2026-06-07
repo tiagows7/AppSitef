@@ -7,6 +7,9 @@ object TefPreferences {
     private const val PREF_NAME = "tef_config"
     private const val MODULO_INI_FILE = "modulo.ini"
 
+    /** Porta TCP do servidor SiTef (distinta da porta REST do DataSnap). */
+    const val DEFAULT_SITEF_PORT = 4096
+
     private const val KEY_SITEF_HOST = "sitef_host"
     private const val KEY_CHIP_HOST = "chip_host"
     private const val KEY_PORT = "port"
@@ -19,7 +22,9 @@ object TefPreferences {
     private const val KEY_RESTRICTIONS = "restrictions"
     private const val KEY_ADDITIONAL_PARAMS = "additional_params"
     private const val KEY_TEF_CNPJ = "tef_cnpj"
+    private const val KEY_TEF_COM_EXTERNA = "tef_com_externa"
     private const val KEY_TEF_IP = "tef_ip"
+    private const val KEY_TEF_SITEF_PORT = "tef_sitef_port"
     private const val KEY_TEF_DOUBLE_VALIDATION = "tef_double_validation"
     private const val KEY_TEF_OTP = "tef_otp"
     private const val KEY_TEF_CNPJ_AUTOMACAO = "tef_cnpj_automacao"
@@ -35,20 +40,106 @@ object TefPreferences {
     private const val KEY_GERAL_REGISTRO = "geral_registro"
     private const val KEY_GERAL_ATIVO = "geral_ativo"
     private const val KEY_GERAL_TIPO_VENDA = "geral_tipo_venda"
+    private const val KEY_CONFIG_COMPLETED = "config_completed"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+
+    fun isConfigured(context: Context): Boolean {
+        loadModuloIniIfExists(context)
+        if (!File(context.filesDir, MODULO_INI_FILE).exists()) return false
+
+        val port = getPort(context)
+        val pdv = getOperator(context)
+        if (port.isBlank() || pdv.isBlank()) return false
+
+        val host = if (getConnectionType(context).equals("CHIP", ignoreCase = true)) {
+            getChipHost(context)
+        } else {
+            getSitefHost(context)
+        }
+        if (host.isBlank()) return false
+
+        val terminalOk = getTerminalId(context).isNotBlank()
+        val savedOk = prefs(context).getBoolean(KEY_CONFIG_COMPLETED, false) ||
+            prefs(context).getString(KEY_GERAL_ATIVO, "").equals("TRUE", ignoreCase = true)
+
+        return terminalOk && savedOk
+    }
 
     fun getSitefHost(context: Context): String = prefs(context).getString(KEY_SITEF_HOST, "") ?: ""
     fun getChipHost(context: Context): String = prefs(context).getString(KEY_CHIP_HOST, "") ?: ""
     fun getPort(context: Context): String = prefs(context).getString(KEY_PORT, "") ?: ""
+
+    /** CNPJ do posto — usado na validação de cupom App Promo (`cnpj_posto`). */
+    fun getPostoCnpj(context: Context): String {
+        loadModuloIniIfExists(context)
+        val geralCnpj = prefs(context).getString(KEY_GERAL_CNPJ, "").orEmpty().trim()
+        if (geralCnpj.isNotEmpty()) return geralCnpj.filter { it.isDigit() }
+        return prefs(context).getString(KEY_TEF_CNPJ, "").orEmpty().filter { it.isDigit() }
+    }
     fun getConnectionType(context: Context): String = prefs(context).getString(KEY_CONNECTION_TYPE, "WIFI") ?: "WIFI"
     fun getStoreId(context: Context): String = prefs(context).getString(KEY_STORE_ID, "") ?: ""
     fun getTerminalId(context: Context): String = prefs(context).getString(KEY_TERMINAL_ID, "") ?: ""
+    fun getTefIp(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_IP, "") ?: ""
+    }
+
+    fun getSitefPort(context: Context): Int {
+        loadModuloIniIfExists(context)
+        return prefs(context).getInt(KEY_TEF_SITEF_PORT, DEFAULT_SITEF_PORT)
+    }
+
+    /** IP/hostname com porta SiTef (`host:porta`) — uso em logs/UI. */
+    fun getSitefEndpoint(context: Context): String {
+        return formatSitefEndpoint(getTefIp(context), getSitefPort(context))
+    }
+
+    /**
+     * Endereço do [CliSiTef.configure] — igual ao GPOS Delphi homologado
+     * (`configuraIntSiTefInterativoEx(EnderecoIPSitef, …)`): só IP/host, porta padrão 4096 na lib.
+     */
+    fun getSitefConfigureAddress(context: Context): String = getTefIp(context).trim()
+
+    fun formatSitefEndpoint(ip: String, port: Int = DEFAULT_SITEF_PORT): String {
+        val trimmed = ip.trim()
+        if (trimmed.isEmpty()) return ""
+        if (trimmed.contains(':')) return trimmed
+        return "$trimmed:$port"
+    }
+
+    fun getTefTransacoesHabilitadas(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_TRANSACOES, "") ?: ""
+    }
+
+    fun getTefComExterna(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_COM_EXTERNA, "0") ?: "0"
+    }
+
+    fun getSitefConfigureAdditionalParams(context: Context): String {
+        loadModuloIniIfExists(context)
+        return TefClsitConfig.buildConfigureAdditionalParams(
+            tipoComunicacaoExterna = getTefComExterna(context),
+            cnpjAutomacao = prefs(context).getString(KEY_TEF_CNPJ_AUTOMACAO, "") ?: "",
+            cnpjFacilitador = prefs(context).getString(KEY_TEF_CNPJ, "") ?: ""
+        )
+    }
     fun getOperator(context: Context): String = prefs(context).getString(KEY_OPERATOR, "0001") ?: "0001"
     fun getAmount(context: Context): String = prefs(context).getString(KEY_AMOUNT, "100") ?: "100"
     fun getCoupon(context: Context): String = prefs(context).getString(KEY_COUPON, "1") ?: "1"
     fun getRestrictions(context: Context): String = prefs(context).getString(KEY_RESTRICTIONS, "") ?: ""
     fun getAdditionalParams(context: Context): String = prefs(context).getString(KEY_ADDITIONAL_PARAMS, "") ?: ""
+
+    fun getTefObrigadoOperador(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_OBRIGADO_OPERADOR, "N") ?: "N"
+    }
+
+    fun isOperadorObrigatorio(context: Context): Boolean {
+        return getTefObrigadoOperador(context).equals("S", ignoreCase = true)
+    }
 
     fun saveBaseConfig(
         context: Context,
@@ -68,6 +159,7 @@ object TefPreferences {
         val tefIdTerminal: String,
         val tefIdLoja: String,
         val tefCnpj: String,
+        val tefComExterna: String,
         val tefIsDoubleValidation: String,
         val tefOtp: String,
         val tefCnpjAutomacao: String,
@@ -99,11 +191,21 @@ object TefPreferences {
             .putString(KEY_TERMINAL_ID, terminal.tefIdTerminal)
             .putString(KEY_OPERATOR, pdv.ifBlank { "0001" })
             .putString(KEY_TEF_CNPJ, terminal.tefCnpj)
+            .putString(KEY_TEF_COM_EXTERNA, terminal.tefComExterna.ifBlank { "0" })
             .putString(KEY_TEF_IP, terminal.tefIp)
+            .putInt(KEY_TEF_SITEF_PORT, DEFAULT_SITEF_PORT)
             .putString(KEY_TEF_DOUBLE_VALIDATION, terminal.tefIsDoubleValidation)
             .putString(KEY_TEF_OTP, terminal.tefOtp)
             .putString(KEY_TEF_CNPJ_AUTOMACAO, terminal.tefCnpjAutomacao)
             .putString(KEY_TEF_TRANSACOES, terminal.tefTransacoesHabilitadas)
+            .putString(
+                KEY_ADDITIONAL_PARAMS,
+                TefClsitConfig.buildConfigureAdditionalParams(
+                    tipoComunicacaoExterna = terminal.tefComExterna,
+                    cnpjAutomacao = terminal.tefCnpjAutomacao,
+                    cnpjFacilitador = terminal.tefCnpj
+                )
+            )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, terminal.tefObrigadoOperador)
             .putString(KEY_TEF_POSTIPO, terminal.tefPosTipo)
             .putString(KEY_TEF_MODELO, terminal.tefModelo)
@@ -113,6 +215,7 @@ object TefPreferences {
             .putString(KEY_TEF_TIPO_DOCUMENTO, terminal.tefTipoDocumento)
             .putString(KEY_GERAL_ATIVO, "TRUE")
             .putString(KEY_GERAL_TIPO_VENDA, "1")
+            .putBoolean(KEY_CONFIG_COMPLETED, true)
             .commit()
 
         saveModuloIni(
@@ -151,9 +254,11 @@ object TefPreferences {
             appendLine()
             appendLine("[TEF]")
             appendLine("IP=${terminal.tefIp}")
+            appendLine("PORTA=$DEFAULT_SITEF_PORT")
             appendLine("IDTERMINAL=${terminal.tefIdTerminal}")
             appendLine("IDLOJA=${terminal.tefIdLoja}")
             appendLine("CNPJ=${terminal.tefCnpj}")
+            appendLine("COMEXTERNA=${terminal.tefComExterna.ifBlank { "0" }}")
             appendLine("ISDOUBLEVALIDATION=${terminal.tefIsDoubleValidation}")
             appendLine("OTP=${terminal.tefOtp}")
             appendLine("CNPJAUTOMACAO=${terminal.tefCnpjAutomacao}")
@@ -167,6 +272,7 @@ object TefPreferences {
             appendLine("TIPODOCUMENTO=${terminal.tefTipoDocumento}")
         }
         File(context.filesDir, MODULO_INI_FILE).writeText(content)
+        CliSiTefAssetInstaller.syncTransacoesHabilitadas(context)
     }
 
     fun loadModuloIniIfExists(context: Context) {
@@ -189,13 +295,26 @@ object TefPreferences {
             .putString(KEY_GERAL_ATIVO, geral["ATIVO"].orEmpty())
             .putString(KEY_GERAL_TIPO_VENDA, geral["TIPOVENDA"] ?: "1")
             .putString(KEY_TEF_IP, tef["IP"].orEmpty())
+            .putInt(
+                KEY_TEF_SITEF_PORT,
+                tef["PORTA"]?.toIntOrNull() ?: DEFAULT_SITEF_PORT
+            )
             .putString(KEY_TERMINAL_ID, tef["IDTERMINAL"].orEmpty())
             .putString(KEY_STORE_ID, tef["IDLOJA"].orEmpty())
             .putString(KEY_TEF_CNPJ, tef["CNPJ"].orEmpty())
+            .putString(KEY_TEF_COM_EXTERNA, tef["COMEXTERNA"]?.ifBlank { "0" } ?: "0")
             .putString(KEY_TEF_DOUBLE_VALIDATION, tef["ISDOUBLEVALIDATION"].orEmpty())
             .putString(KEY_TEF_OTP, tef["OTP"].orEmpty())
             .putString(KEY_TEF_CNPJ_AUTOMACAO, tef["CNPJAUTOMACAO"].orEmpty())
             .putString(KEY_TEF_TRANSACOES, tef["TRANSACAOHABILITADAS"].orEmpty())
+            .putString(
+                KEY_ADDITIONAL_PARAMS,
+                TefClsitConfig.buildConfigureAdditionalParams(
+                    tipoComunicacaoExterna = tef["COMEXTERNA"]?.ifBlank { "0" } ?: "0",
+                    cnpjAutomacao = tef["CNPJAUTOMACAO"].orEmpty(),
+                    cnpjFacilitador = tef["CNPJ"].orEmpty()
+                )
+            )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, tef["OBRIGADOOPERADOR"].orEmpty())
             .putString(KEY_TEF_POSTIPO, tef["POSTIPO"].orEmpty())
             .putString(KEY_TEF_MODELO, tef["MODELO"].orEmpty())

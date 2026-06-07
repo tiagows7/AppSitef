@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Splash: +200% sobre 300x150 → 600x300 -->
+    <dimen name="splash_logo_width">600dp</dimen>
+    <dimen name="splash_logo_height">300dp</dimen>
+</resources>

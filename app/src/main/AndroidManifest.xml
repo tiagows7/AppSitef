@@ -2,14 +2,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
+        android:name=".SmartPosApplication"
         android:allowBackup="true"
+        android:extractNativeLibs="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppSiTefSmartPos"
         android:usesCleartextTraffic="true">
+
+        <!-- Obrigatório GPOS720 (PPComp): inicializa biblioteca pinpad — igual ModuloPosSitef Delphi -->
+        <provider
+            android:name="br.com.setis.gpos720.Content"
+            android:authorities="PPCompGPOS760"
+            android:enabled="true"
+            android:exported="false" />
+
         <activity
             android:name=".ConfigurationActivity"
             android:exported="false" />
@@ -23,14 +36,18 @@
             android:name=".SalesActivity"
             android:exported="false" />
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppSiTefSmartPos.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

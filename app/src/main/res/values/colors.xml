@@ -17,4 +17,8 @@
     <color name="brand_on_surface">#0F172A</color>
     <color name="brand_background">#EEF3FF</color>
     <color name="brand_outline">#7A879A</color>
+
+    <color name="fuel_selected_stroke">#C62828</color>
+    <color name="fuel_selected_container">#FFEBEE</color>
+    <color name="fuel_selected_accent">#B71C1C</color>
 </resources>

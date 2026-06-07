@@ -1,0 +1,5 @@
+Coloque aqui o PDF do manual CliSiTef Android para análise no Cursor, por exemplo:
+
+  docs/manual-clisitef-android.pdf
+
+Depois avise no chat que o arquivo foi copiado.

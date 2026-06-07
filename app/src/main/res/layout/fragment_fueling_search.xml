@@ -28,7 +28,10 @@
                     android:id="@+id/etBico"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="number" />
+                    android:digits="0123456789"
+                    android:importantForAutofill="no"
+                    android:inputType="number"
+                    android:maxLength="2" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.button.MaterialButton

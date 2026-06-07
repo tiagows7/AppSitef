@@ -7,7 +7,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
+import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
 import com.appsitef.smartpos.tef.TefPreferences
+import com.appsitef.smartpos.ui.NumericInputFilters
 import com.appsitef.smartpos.ui.WaitDialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,6 +36,8 @@ class ConfigurationActivity : AppCompatActivity() {
         val etServidorPorta = findViewById<TextInputEditText>(R.id.etServidorPorta)
         val etPdv = findViewById<TextInputEditText>(R.id.etPdv)
         val btnSalvar = findViewById<MaterialButton>(R.id.btnSalvarConfiguracao)
+
+        NumericInputFilters.applyDigitsOnly(etPdv, maxDigits = 3)
 
         loadSavedConfigurationIntoFields(rbWifi, rbChip, etServidorWifi, etServidorChip, etServidorPorta, etPdv)
 
@@ -82,8 +86,16 @@ class ConfigurationActivity : AppCompatActivity() {
                         amount = "100",
                         coupon = "1",
                         restrictions = "",
-                        additionalParams = ""
+                        additionalParams = TefPreferences.getSitefConfigureAdditionalParams(
+                            this@ConfigurationActivity
+                        )
                     )
+
+                    withContext(Dispatchers.Main) {
+                        CliSiTefAssetInstaller.ensureInstalled(this@ConfigurationActivity)
+                        CliSiTefAssetInstaller.syncTransacoesHabilitadas(this@ConfigurationActivity)
+                    }
+
                     Toast.makeText(
                         this@ConfigurationActivity,
                         "GPOS CONFIGURADO COM SUCESSO",
@@ -136,9 +148,9 @@ class ConfigurationActivity : AppCompatActivity() {
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                error("HTTP ${response.code()} ao consultar terminal.")
+                error("HTTP ${response.code} ao consultar terminal.")
             }
-            val body = response.body()?.string()?.trim().orEmpty()
+            val body = response.body?.string()?.trim().orEmpty()
             if (body.isBlank()) error("Resposta vazia do servidor.")
 
             val json = parseJsonPayload(body)
@@ -148,6 +160,7 @@ class ConfigurationActivity : AppCompatActivity() {
                 tefIdTerminal = json.optString("TEF_IDTERMINAL"),
                 tefIdLoja = json.optString("TEF_IDLOJA"),
                 tefCnpj = json.optString("TEF_CNPJ"),
+                tefComExterna = json.optString("TEF_COMEXTERNA", "0"),
                 tefIsDoubleValidation = json.optString("TEF_ISDOUBLEVALIDATION"),
                 tefOtp = json.optString("TEF_OTP"),
                 tefCnpjAutomacao = json.optString("TEF_CNPJAUTOMACAO"),

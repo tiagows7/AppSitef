@@ -17,14 +17,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/tvTotalizadorVenda"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Totalizador: R$ 0,00"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.AppSiTefSmartPos.TextInput"
                 android:layout_width="match_parent"
@@ -36,21 +28,27 @@
                     android:id="@+id/etOperadorVenda"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="text" />
+                    android:digits="0123456789"
+                    android:importantForAutofill="no"
+                    android:inputType="number"
+                    android:maxLength="3" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/tilValorVenda"
                 style="@style/Widget.AppSiTefSmartPos.TextInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:hint="Valor da venda">
+                android:hint="Valor da venda"
+                app:prefixText="R$ ">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/etValorVenda"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="numberDecimal" />
+                    android:importantForAutofill="no"
+                    android:inputType="number" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <com.google.android.material.button.MaterialButton

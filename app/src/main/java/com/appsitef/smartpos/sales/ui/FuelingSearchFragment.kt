@@ -5,106 +5,182 @@ import android.view.View
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.textfield.TextInputEditText
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.appsitef.smartpos.R
 import com.appsitef.smartpos.SalesActivity
 import com.appsitef.smartpos.sales.SalesViewModel
 import com.appsitef.smartpos.sales.model.Abastecimento
+import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
+import com.appsitef.smartpos.tef.TefPreferences
+import com.appsitef.smartpos.ui.KeyboardUtils
+import com.appsitef.smartpos.ui.NumericInputFilters
+import com.appsitef.smartpos.ui.WaitDialog
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.textfield.TextInputEditText
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
 
     private val salesViewModel: SalesViewModel by activityViewModels()
+    private val repository by lazy { AbastecimentoRemoteRepository(requireContext()) }
+    private lateinit var adapter: AbastecimentoAdapter
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        TefPreferences.loadModuloIniIfExists(requireContext())
+
         val etBico = view.findViewById<TextInputEditText>(R.id.etBico)
+        NumericInputFilters.applyDigitsOnly(etBico, maxDigits = 2)
         val btnPesquisar = view.findViewById<MaterialButton>(R.id.btnPesquisarBico)
         val btnAvancar = view.findViewById<MaterialButton>(R.id.btnAvancarAbaCliente)
         val rvAbastecimentos = view.findViewById<RecyclerView>(R.id.rvAbastecimentos)
 
-        val adapter = AbastecimentoAdapter { item ->
-            salesViewModel.setSelectedAbastecimento(item)
-        }
+        adapter = AbastecimentoAdapter(
+            onSelectionChanged = { selected ->
+                salesViewModel.setSelectedAbastecimentos(selected)
+            },
+            onItemToggled = { item, selected ->
+                if (selected) {
+                    registrarAbastecimentoSelecionado(item)
+                } else {
+                    liberarAbastecimentoSelecionado(item)
+                }
+            }
+        )
 
         rvAbastecimentos.layoutManager = LinearLayoutManager(requireContext())
         rvAbastecimentos.adapter = adapter
 
-        btnPesquisar.setOnClickListener {
-            val bico = etBico.text.toString().trim()
-            if (bico.isEmpty()) {
-                Toast.makeText(requireContext(), "Informe o bico para pesquisar.", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
+        salesViewModel.abastecimentos.observe(viewLifecycleOwner) { items ->
+            adapter.updateItems(items, keepSelection = true)
+            syncAdapterSelectionFromViewModel()
+            if (items.isEmpty()) {
+                etBico.text?.clear()
             }
+        }
 
-            val abastecimentos = buildMockAbastecimentos(bico)
-            adapter.updateItems(abastecimentos)
-            salesViewModel.setSelectedAbastecimento(null)
-            if (abastecimentos.isEmpty()) {
-                Toast.makeText(requireContext(), "Nenhum abastecimento encontrado.", Toast.LENGTH_SHORT).show()
+        salesViewModel.selectedAbastecimentos.observe(viewLifecycleOwner) {
+            syncAdapterSelectionFromViewModel()
+        }
+
+        salesViewModel.saleAbastecimentos.observe(viewLifecycleOwner) {
+            syncAdapterSelectionFromViewModel()
+        }
+
+        btnPesquisar.setOnClickListener {
+            KeyboardUtils.hide(this)
+            val bico = etBico.text.toString().trim()
+
+            lifecycleScope.launch {
+                val waitDialog = WaitDialog.show(
+                    requireContext(),
+                    R.string.wait_message_searching_fueling
+                )
+                btnPesquisar.isEnabled = false
+                try {
+                    val abastecimentos = withContext(Dispatchers.IO) {
+                        repository.buscarAbastecimentos(bico)
+                    }
+                    salesViewModel.setSelectedAbastecimentos(emptyList())
+                    salesViewModel.setAbastecimentos(abastecimentos)
+                    if (abastecimentos.isEmpty()) {
+                        Toast.makeText(
+                            requireContext(),
+                            "Nenhum abastecimento encontrado.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                } catch (error: Exception) {
+                    salesViewModel.setSelectedAbastecimentos(emptyList())
+                    salesViewModel.setAbastecimentos(emptyList())
+                    Toast.makeText(
+                        requireContext(),
+                        "Erro ao consultar abastecimentos: ${error.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } finally {
+                    waitDialog.dismiss()
+                    btnPesquisar.isEnabled = true
+                }
             }
         }
 
         btnAvancar.setOnClickListener {
-            val selected = adapter.getSelectedItem()
-            if (selected == null) {
-                Toast.makeText(requireContext(), "Selecione um abastecimento para continuar.", Toast.LENGTH_SHORT).show()
+            val selected = adapter.getSelectedItems()
+            if (selected.isEmpty()) {
+                Toast.makeText(
+                    requireContext(),
+                    "Selecione ao menos um abastecimento para continuar.",
+                    Toast.LENGTH_SHORT
+                ).show()
             } else {
-                salesViewModel.setSelectedAbastecimento(selected)
+                salesViewModel.setSelectedAbastecimentos(selected)
+                salesViewModel.commitSaleAbastecimentos()
                 (activity as? SalesActivity)?.goToTab(1)
             }
         }
     }
 
-    private fun buildMockAbastecimentos(bicoFiltro: String): List<Abastecimento> {
-        val mocks = listOf(
-            Abastecimento(
-                id = "ab-1001",
-                ababmb = "01",
-                abaqtd = 35.42,
-                abavlruni = 5.79,
-                abatot = 205.11,
-                abanum = 1001,
-                abaaba = 5001,
-                abaopeaba = "101",
-                abaopedes = "Carlos",
-                abaprodes = "Gasolina Comum",
-                abahoradia = "09:11:30",
-                abapro = 1
-            ),
-            Abastecimento(
-                id = "ab-1002",
-                ababmb = "02",
-                abaqtd = 22.80,
-                abavlruni = 6.09,
-                abatot = 138.85,
-                abanum = 1002,
-                abaaba = 5002,
-                abaopeaba = "102",
-                abaopedes = "Marina",
-                abaprodes = "Gasolina Aditivada",
-                abahoradia = "09:15:12",
-                abapro = 2
-            ),
-            Abastecimento(
-                id = "ab-1003",
-                ababmb = "03",
-                abaqtd = 48.30,
-                abavlruni = 5.99,
-                abatot = 289.32,
-                abanum = 1003,
-                abaaba = 5003,
-                abaopeaba = "103",
-                abaopedes = "Juliano",
-                abaprodes = "Diesel S10",
-                abahoradia = "09:19:47",
-                abapro = 3
-            )
-        )
+    private fun syncAdapterSelectionFromViewModel() {
+        if (!::adapter.isInitialized) return
 
-        return mocks.filter { it.ababmb == bicoFiltro }
+        val selected = salesViewModel.selectedAbastecimentos.value.orEmpty()
+        val sale = salesViewModel.saleAbastecimentos.value.orEmpty()
+        val ids = when {
+            selected.isNotEmpty() -> selected.map { it.id }
+            sale.isNotEmpty() -> sale.map { it.id }
+            else -> emptyList()
+        }
+        adapter.setSelectedIds(ids)
+    }
+
+    private fun registrarAbastecimentoSelecionado(item: Abastecimento) {
+        executarPostAbastecimento(
+            messageRes = R.string.wait_message_registering_fueling,
+            onSuccess = { adapter.confirmSelection(item) },
+            errorPrefix = "Erro ao registrar abastecimento",
+        ) {
+            repository.registrarAbastecimento(item)
+        }
+    }
+
+    private fun liberarAbastecimentoSelecionado(item: Abastecimento) {
+        executarPostAbastecimento(
+            messageRes = R.string.wait_message_releasing_fueling,
+            onSuccess = { adapter.confirmDeselection(item) },
+            errorPrefix = "Erro ao liberar abastecimento",
+        ) {
+            repository.liberarAbastecimento(item)
+        }
+    }
+
+    private fun executarPostAbastecimento(
+        messageRes: Int,
+        onSuccess: () -> Unit,
+        errorPrefix: String,
+        action: () -> Unit,
+    ) {
+        lifecycleScope.launch {
+            adapter.setInteractionLocked(true)
+            val waitDialog = WaitDialog.show(requireContext(), messageRes)
+            try {
+                withContext(Dispatchers.IO) { action() }
+                onSuccess()
+            } catch (error: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    "$errorPrefix: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                waitDialog.dismiss()
+                adapter.setInteractionLocked(false)
+            }
+        }
     }
 }

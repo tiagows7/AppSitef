@@ -1,0 +1,1167 @@
+﻿java : jun. 03, 2026 11:54:19 PM org.apache.pdfbox.pdmodel.font.FileSystemFontProvider loadDiskCache
+No C:\Users\tiago\AppData\Local\Temp\ps-script-57f7ea50-3287-4c07-8dc9-f042bbdb68e0.ps1:82 caractere:1
++ java -jar $jar ExtractText -console "$pdf" 2>&1 | Out-File -FilePath  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (jun. 03, 2026 1...r loadDiskCache:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+ADVERT╩NCIA: 422 new fonts found, font cache will be re-built
+jun. 03, 2026 11:54:19 PM org.apache.pdfbox.pdmodel.font.FileSystemFontProvider <init>
+ADVERT╩NCIA: Building on-disk font cache, this may take a while
+jun. 03, 2026 11:54:36 PM org.apache.pdfbox.pdmodel.font.FileSystemFontProvider <init>
+ADVERT╩NCIA: Finished building on-disk font cache, found 459 fonts
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+CliSiTef Android 
+Integra├º├úo com a Aplica├º├úo 
+ 
+ 
+Vers├úo 2.21 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  2 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+ 
+Esclarecimentos 
+ 
+ 
+ 
+ 
+ÔÇó O usu├írio deste documento ├® o respons├ível por garantir que est├í de posse da vers├úo mais 
+atualizada. 
+ÔÇó Qualquer usu├írio pode utilizar essa c├│pia para sugerir altera├º├Áes no documento. 
+ÔÇó Todos os pedidos de altera├º├úo devem ser direcionados ao respons├ível pelo documento (ver 
+coluna ÔÇ£AutorÔÇØ do item ÔÇ£Hist├│rico de Altera├º├ÁesÔÇØ neste documento). 
+ÔÇó Somente o respons├ível consolida os pedidos de altera├º├úo. 
+ÔÇó Somente o respons├ível pode alterar o n├║mero da vers├úo deste documento. 
+ÔÇó As imagens dos ├¡cones nas caixas de texto est├úo sob a licen├ºa presente em: 
+http://wiki.docbook.org/DocBookLicense 
+ 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  3 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+Sum├írio 
+1 Introdu├º├úo ............................................................................................................................................. 5 
+2 P├║blico-Alvo ........................................................................................................................................... 5 
+3 Objetivos ............................................................................................................................................... 5 
+4 Inclus├úo no Projeto ................................................................................................................................ 6 
+4.1 Vers├úo Android m├¡nima ................................................................................................................................ 7 
+5 Interface de Programa├º├úo....................................................................................................................... 8 
+5.1 Classe br.com.softwareexpress.sitef.android.CliSiTef .................................................................................. 9 
+5.1.1 Acessando a CliSiTef em outras atividades (Activity) ....................................................................... 11 
+5.1.2 Fun├º├Áes dispon├¡veis .......................................................................................................................... 11 
+5.1.3 Exemplo de tratamento dos eventos onData e onTransactionResult .............................................. 12 
+5.2 Equival├¬ncia de fun├º├Áes .............................................................................................................................. 14 
+5.3 Finaliza identificada ..................................................................................................................................... 14 
+6 Configura├º├úo da CliSiTef para acesso a pinpads externos ....................................................................... 15 
+6.1 Filtro de pinpad bluetooth usando seu endere├ºo MAC .............................................................................. 16 
+6.2 Eventos de pinpad via Handler ................................................................................................................... 17 
+6.3 Depura├º├úo da aplica├º├úo ao usar um pinpad USB ........................................................................................ 17 
+7 Integra├º├úo com terminais APOS ............................................................................................................ 19 
+7.1 Pinpad virtual (m├®todo setActivity) ............................................................................................................ 19 
+7.2 Bibliotecas do fabricante............................................................................................................................. 20 
+7.3 Habilitando acessibilidade na CliSiTef ......................................................................................................... 20 
+8 Arquivo de configura├º├úo: CLSIT ............................................................................................................. 20 
+8.1 Trace ............................................................................................................................................................ 21 
+8.1.1 Restri├º├úo de grava├º├úo no Android 10 e posteriores ......................................................................... 22 
+9 TLS (Transport Layer Security) ............................................................................................................... 23 
+9.1 Arquitetura .................................................................................................................................................. 23 
+9.2 Utilizando TLS da Software Express ............................................................................................................ 23 
+9.2.1 Habilitando a comunica├º├úo TLS na CliSiTef ....................................................................................... 23 
+9.2.2 Configurando o Certificado CA ......................................................................................................... 24 
+9.3 Utilizando TLS da GSurf ............................................................................................................................... 24 
+9.3.1 Configurando a CliSiTef ..................................................................................................................... 24 
+9.3.2 Situa├º├Áes de Erros ............................................................................................................................. 25 
+9.3.3 C├│digos de Erro ................................................................................................................................. 25 
+9.4 Utilizando TLS da WNB COMNECT .............................................................................................................. 27 
+10 Hist├│rico de Altera├º├Áes ......................................................................................................................... 28 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  4 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+ 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  5 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+1 Introdu├º├úo 
+Este documento descreve a integra├º├úo da biblioteca CliSiTef com o sistema operacional Android. A CliSiTef prov├¬ 
+para a aplica├º├úo cliente a interface com os servi├ºos de meio de pagamento dispon├¡veis no servidor SiTef. Para um 
+completo entendimento da intera├º├úo da aplica├º├úo da Automa├º├úo Comercial com a CliSiTef ├® pr├®-requisito o 
+dom├¡nio total da interface de acesso ao SiTef via DLL descrita no documento ÔÇ£SiTef - Interface Simplificada com a 
+aplica├º├úo.pdfÔÇØ. 
+A CliSiTef para Android pode ser integrada com aplica├º├Áes desenvolvidas para tr├¬s cen├írios de hardware 
+diferentes: 
+1. Smartphone/Tablet Android em conjunto com PinPad externo (dois aparelhos distintos conectados via 
+USB ou Bluetooth). Exemplo: smartphone Samsung com pinpad PAX D200. 
+2. Terminal APOS com pinpad externo fixo (um aparelho ├║nico que compreende tablet Android, pinpad 
+externo acoplado ao tablet, impressora t├®rmica e outros perif├®ricos). Exemplo: Verifone Carbon 10. 
+3. Terminal APOS com pinpad interno (um aparelho ├║nico que compreende smartphone Android, pinpad 
+interno, impressora t├®rmica e outros perif├®ricos). Exemplos: Gertec GPOS700 e Ingenico A8. 
+Como todos os Cen├írios s├úo Android, a forma de integra├º├úo ├® essencialmente a mesma. Ou seja, o fluxo de 
+chamadas ├á CliSiTef ser├í praticamente id├¬ntico nos tr├¬s Cen├írios. As pequenas diferen├ºas s├úo causadas pelo fato 
+dos Cen├írios 1 e 2 utilizarem um pinpad externo e o Cen├írio 3 utilizar um pinpad interno, que compartilha a tela 
+com a aplica├º├úo. Por isso, ├® importante que os desenvolvedores no Cen├írio 3 leiam com aten├º├úo a Se├º├úo 7 
+espec├¡fica para APOS com pinpad interno. Para integra├º├úo nos Cen├írios 2 e 3, por j├í possu├¡rem um pinpad interno 
+ou acoplado externamente, os desenvolvedores podem desconsiderar os trechos deste documento referentes ao 
+PinPad externo USB/Bluetooth (Se├º├úo 6). 
+No momento da publica├º├úo deste documento, diversos modelos de terminais APOS se encontram em processo 
+de homologa├º├úo com as redes adquirentes. Para esses casos, a Software Express fornece vers├Áes de CliSiTef apenas 
+para desenvolvimento ou piloto. Consulte-nos sobre a disponibilidade para cada plataforma. 
+2 P├║blico-Alvo 
+Desenvolvedores de automa├º├úo comercial que j├í possuem experi├¬ncia com a CliSiTef. 
+3 Objetivos 
+Apresentar as particularidades da integra├º├úo com a CliSiTef em ambientes Android/APOS. 
+ 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  6 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+4 Inclus├úo no Projeto 
+Para utilizar a CliSiTef em aplica├º├Áes Android, ├® necess├írio incluir as seguintes bibliotecas no projeto de 
+constru├º├úo da aplica├º├úo: 
+1. clisitef-android.jar no classpath para o processo de compila├º├úo. 
+2. Bibliotecas nativas (libclisitef.so e demais bin├írios .so), compiladas para cada plataforma suportada, 
+para inclus├úo no pacote apk. 
+O n├║cleo da CliSiTef ├® a biblioteca nativa libclisitef.so. A Automa├º├úo a acessa atrav├®s da componente Java 
+inclu├¡da no arquivo ÔÇÿclisitef-android.jarÔÇÖ que essencialmente ├® composta por uma camada JNI para acesso ├ás fun├º├Áes 
+da libclisitef.so e um m├│dulo de gerenciamento do meio de comunica├º├úo com o pinpad (USB, Bluetooth ou interface 
+interna). 
+Importante: caso os desenvolvedores estejam usando a IDE do Eclipse ou Android Studio, vale ressaltar que as 
+bibliotecas din├ómicas .so devem ficar na pasta correspondente ├á arquitetura. Al├®m disso, os bin├írios possuem 
+assinatura criptogr├ífica que ├® validada em tempo de execu├º├úo. Ent├úo elas n├úo podem passar pelo processo de strip, 
+j├í que isso pode alterar o bin├írio. No Android Studio, ├® necess├írio explicitamente desativar o strip definindo a 
+op├º├úo android.packagingOptions.doNoStrip no arquivo build.gradle: 
+android { 
+  ... 
+  packagingOptions{ 
+    doNotStrip "**/libclisitef.so" 
+  } 
+} 
+Lembrando que ap├│s a inclus├úo da op├º├úo, ├® necess├írio realizar um Sync e um Rebuild no projeto. 
+A aus├¬ncia dessa op├º├úo (ou equivalente em outra IDE) causar├í erro de assinatura em tempo de execu├º├úo com 
+uma mensagem semelhante a: 
+Erro assinatura modulo (-158), 00000000/00000000: libclisitef.so 
+ 
+A libclisitef.so possui compila├º├Áes para as seguintes plataformas: armeabi, armeabi-v7a, arm64-v8a, mips, 
+mips64, x86 e x86_64. Os desenvolvedores devem copiar os bin├írios de cada plataforma para a localiza├º├úo 
+correspondente da IDE utilizada. No Eclipse, o .so de cada plataforma deve ser colocado no diret├│rio 
+./libs/<plataforma>. No Android Studio, o diret├│rio correspondente normalmente se encontra em 
+./<projeto>/src/main/jniLibs/<plataforma>. Exemplos: 
+ÔÇó Eclipse: bin├írios .so da plataforma armeabi-v7a devem ser copiados para ./libs/armeabi-v7a do projeto. 
+ÔÇó Android Studio: bin├írios .so da plataforma armeabi devem ser copiados para 
+./app/src/main/jniLibs/armeabi (assumindo que o projeto da aplica├º├úo seja ÔÇÿappÔÇÖ). 
+Independente da IDE, os bin├írios .so da plataforma <plat> devem estar presentes no diret├│rio ./lib/<plat> do 
+arquivo .apk final. 
+J├í o arquivo ÔÇÿclisitef-android.jarÔÇÖ, que ├® independente de plataforma, deve ser inclu├¡do no classpath do projeto. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  7 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+Acompanha tamb├®m javadoc do pacote, que pode ser incorporada ├á ferramenta de desenvolvimento, de forma 
+a facilitar a indica├º├úo dos m├®todos e par├ómetros durante seu desenvolvimento. 
+4.1 Vers├úo Android m├¡nima 
+A vers├úo m├¡nima do Android para utiliza├º├úo da CliSiTef ├® 5.0 Lollipop (API level 21). 
+ 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  8 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+5 Interface de Programa├º├úo 
+Para facilitar a integra├º├úo com a aplica├º├úo, somente um subconjunto de fun├º├Áes do n├║cleo da CliSiTef est├í 
+dispon├¡vel atrav├®s da interface Java. Esta interface utiliza as caracter├¡sticas do Android para simplificar as transa├º├Áes 
+nesta plataforma. Por n├úo ter um paralelo com outras plataformas, o c├│digo pode n├úo ser totalmente port├ível. A 
+classe Java que disponibiliza os m├®todos da interface ├®: 
+br.com.softwareexpress.sitef.android.CliSiTef 
+A Software Express fornece a aplica├º├úo exemplo ÔÇ£CliSiTef Example v2ÔÇØ que ilustra o seu uso. 
+A seguir, detalharemos o funcionamento da classe.  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  9 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+5.1 Classe br.com.softwareexpress.sitef.android.CliSiTef 
+Neste modelo, as transa├º├Áes utilizam o conceito de listener/eventos/call-back. Ou seja, a automa├º├úo comercial 
+registra uma fun├º├úo que ser├í chamada durante o fluxo da transa├º├úo. 
+ 
+Figura 1 - Exemplo de uma transa├º├úo 
+startTransaction
+onData
+continueTransaction
+onData
+continueTransaction
+...
+onTransactionResult
+finishTransaction
+onData
+continueTransaction
+onData
+continueTransaction
+...
+onTransactionResult
+App CliSiTef
+fim
+in├¡cio
+Activity
+Ô£ô
+Ô£ô
+Caso 1 - Transa├º├úo com sucesso
+Est├ígio 1
+transa├º├úo
+Est├ígio 2
+confirma├º├úo
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  10 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+Por se tratar de uma implementa├º├úo exclusiva para ambientes Android, a integra├º├úo da automa├º├úo neste 
+ambiente ├® muito mais simples, quando comparada com interfaces das outras plataformas. 
+Para acoplar a classe ├á sua aplica├º├úo, basta chamar o construtor, passando como par├ómetro o contexto da 
+aplica├º├úo. 
+Para receber eventos adicionais (como mudan├ºas de status de conex├úo do PinPad), atribua um 
+android.os.Handler apropriado. 
+clisitef = new CliSiTef (this.getApplicationContext ()); 
+clisitef.setMessageHandler (hndMessage); 
+ 
+Importante: instancie apenas uma vez a CliSiTef, para evitar problemas de concorr├¬ncia com o pinpad. 
+Antes de iniciar uma transa├º├úo, ├® necess├írio que a automa├º├úo implemente a interface ICliSiTefListener: 
+public interface ICliSiTefListener extends EventListener { 
+  public void onData (int currentStage, int command, int fieldId, int minLength, 
+int maxLength, byte [] input); 
+  public void onTransactionResult (int currentStage, int resultCode);  
+} 
+A transa├º├úo ├® iniciada a partir do m├®todo startTransaction, que recebe como par├ómetro inicial um objeto que 
+implementa ICliSiTefListener, e os demais par├ómetros an├ílogos aos da iniciaFuncaoSiTefInterativo. 
+// Assumindo que ÔÇÿthisÔÇÖ implementa ICliSiTefListener 
+int sts = clisitef.startTransaction (this, modalidade,  valor, docFiscal, 
+dataFiscal, horaFiscal, operador, restricoes); 
+Este m├®todo retorna imediatamente. Caso retorne zero, ser├úo disparados os eventos em onData e 
+onTransactionResult. 
+Para cada evento onData, a aplica├º├úo recebe os dados necess├írios para a coleta. Ap├│s este evento, pode-se optar 
+por continuar a transa├º├úo (m├®todo continueTransaction ÔÇô passando os dados coletados), ou cancelar o fluxo 
+(atrav├®s do m├®todo abortTransaction). 
+O evento onTransactionResult ├® um indicativo de fim de transa├º├úo, retornando o c├│digo de retorno da 
+transa├º├úo. O valor zero indica sucesso na transa├º├úo.  
+Neste caso, a automa├º├úo deve confirmar/n├úo-confirmar a transa├º├úo, atrav├®s do m├®todo finishTransaction.  
+De forma an├íloga ao m├®todo startTransaction, este m├®todo volta imediatamente e, a partir da├¡, os eventos de 
+coleta ser├úo recebidos em onData e onTransactionResult. 
+ 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  11 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+5.1.1 Acessando a CliSiTef em outras atividades (Activity) 
+Para acessar a inst├óncia da CliSiTef que foi criada em outra atividade, ├® poss├¡vel utilizar o m├®todo de classe 
+getInstance(). 
+CliSiTef instancia = CliSiTef.getInstance(); 
+5.1.2 Fun├º├Áes dispon├¡veis 
+M├®todo 
+int abortTransaction (int continua) 
+int configure (String enderecoSiTef, String codigoLoja, 
+String numeroTerminal, String parametrosAdicionais) 
+int continueTransaction (java.lang.String buffer) 
+int finishTransaction(int confirma, String cupomFiscal, String dataFiscal, 
+String horario, String parametrosAdicionais)  
+int startTransaction (ICliSiTefListener listener, int modalidade, 
+String valor, String cupomFiscal, String dataFiscal, String horario, 
+String operador, String restricoes)  
+int loadTranslationFile (String arqTraducao) 
+ 
+Permite carregar um novo arquivo de mensagens para localiza├º├úo/tradu├º├úo. 
+int loadTranslationFile (String arqTraducao, String arqTraducaoCielo) 
+ 
+An├ílogo ao anterior, permitindo definir mensagens exclusivas para Cielo. 
+int getQttPendingTransactions (String dataFiscal, String cupomFiscal) 
+String getVersion ()  
+ 
+Esta fun├º├úo ├® utilizada pelo terminal para obter as vers├Áes da CliSiTef e CliSiTefI. 
+Em caso de sucesso (retorno 0) utilize os m├®todos getVersaoCliSiTef() e getVersaoCliSiTefI(). 
+void setMessageHandler (android.os.Handler hndMessage)  
+ 
+Grava um handler para recep├º├úo de eventos gen├®ricos 
+int submitPendingMessages ()  
+int barcode.validate (String codigoEmBarras)  
+int barcode.getBarcodeType()  
+int pinpad.isPresent()  
+int pinpad.readYesNo (String mensagem)  
+int pinpad.setDisplayMessage (String mensagem)  
+ 
+Observa├º├Áes: 
+String refere-se a java.lang.String 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  12 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+5.1.3 Exemplo de tratamento dos eventos onData e onTransactionResult 
+onData 
+ 
+public void onData(int stage, int command, int fieldId, int minLength, int maxLength, byte[] input) { 
+   
+  if (stage == 1) { 
+    // Evento onData recebido em uma startTransaction 
+  } else if (stage == 2) { 
+    // Evento onData recebido em uma finishTransaction 
+  } 
+ 
+  switch (command) { 
+    case CliSiTef.CMD_RESULT_DATA: 
+      switch (fieldId) { 
+        case CAMPO_COMPROVANTE_CLIENTE: //121 
+        case CAMPO_COMPROVANTE_ESTAB: //122 
+            //Tratar comando 
+      } 
+      break; 
+    case CliSiTef.CMD_SHOW_MSG_CASHIER: 
+    case CliSiTef.CMD_SHOW_MSG_CUSTOMER: 
+    case CliSiTef.CMD_SHOW_MSG_CASHIER_CUSTOMER: 
+        //Tratar comando 
+      break; 
+    case CliSiTef.CMD_SHOW_MENU_TITLE: 
+    case CliSiTef.CMD_SHOW_HEADER: 
+       //Tratar comando 
+      break; 
+    case CliSiTef.CMD_CLEAR_MSG_CASHIER: 
+    case CliSiTef.CMD_CLEAR_MSG_CUSTOMER: 
+    case CliSiTef.CMD_CLEAR_MSG_CASHIER_CUSTOMER: 
+    case CliSiTef.CMD_CLEAR_MENU_TITLE: 
+    case CliSiTef.CMD_CLEAR_HEADER: 
+       //Tratar comando 
+      break; 
+    case CliSiTef.CMD_CONFIRM_GO_BACK: 
+    case CliSiTef.CMD_CONFIRMATION: { 
+        //Tratar comando 
+      return; 
+    } 
+    case CliSiTef.CMD_GET_FIELD_CURRENCY: 
+    case CliSiTef.CMD_GET_FIELD_BARCODE: 
+    case CliSiTef.CMD_GET_FIELD: { 
+        //Tratar comando 
+      return; 
+    } 
+    case CliSiTef.CMD_GET_MENU_OPTION: { 
+       //Tratar comando 
+      return; 
+    } 
+    case CliSiTef.CMD_PRESS_ANY_KEY: { 
+       //Tratar comando 
+      return; 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  13 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+    } 
+    case CliSiTef.CMD_ABORT_REQUEST: 
+      break; 
+    case CMD_SHOW_QRCODE_FIELD: 
+     //Tratar comando 
+      break; 
+    case CliSiTef.CMD_REMOVE_QRCODE_FIELD: 
+       //Tratar comando 
+      break; 
+    default: 
+      break; 
+  } 
+ 
+  clisitef.continueTransaction(data); 
+} 
+ 
+ 
+onTransactionResult 
+ 
+public void onTransactionResult(int stage, int resultCode) { 
+   
+  trnResultCode = resultCode; 
+  if (stage == 1 && resultCode == 0) { // Confirm the transaction 
+    try { 
+      clisitef.finishTransaction(1); 
+    } catch (Exception e) { 
+      //Tratar Exception 
+    } 
+  } else { 
+          if (resultCode == 0) { 
+           //Transa├º├úo ok e pode exibir comprovante 
+          } else { 
+          //Finaliza aplica├º├úo 
+         } 
+  } 
+} 
+ 
+ 
+ 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  14 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+5.2 Equival├¬ncia de fun├º├Áes 
+A tabela abaixo correlaciona os m├®todos de cada classe dos cap├¡tulos anteriores com a rotina na clisitef.dll 
+classe CliSiTef  CliSiTef32I.dll 
+loadTranslationFile CarregaArquivosTraducao 
+configure ConfiguraIntSiTefInterativoEx 
+continueTransaction/abortTransaction ContinuaFuncaoSiTefInterativo 
+startTransaction, com functionId 310. CorrespondenteBancarioSiTefInterativo 
+submitPendingMessages DescarregaMensagens 
+pinpad.setDisplayMessage, com 
+par├ómetro persistent igual a true. 
+EscreveMensagemPermanentePinPad 
+finishTransaction FinalizaTransacaoSiTefInterativoEx 
+startTransaction IniciaFuncaoSiTefInterativo 
+startTransaction, com functionId 430. LeCartaoDiretoSeguro 
+startTransaction, com functionId 432. LeSenhaDireto 
+pinpad.readYesNo LeSimNaoPinPad 
+startTransaction, com functionId 775. ObtemInformacoesPinPad 
+getQttPendingTransactions ObtemQuantidadeTransacoesPendentes 
+getVersion ObtemVersao 
+- - 
+- - 
+setMessageHandler - 
+Barcode.validate ValidaCampoCodigoEmBarras 
+PinPad.isPresent VerificaPresencaPinPad 
+5.3 Finaliza identificada 
+N├úo h├í uma fun├º├úo equivalente da fun├º├úo finalizaTransacaoIdentificadaSitef de outras plataformas, para 
+plataformas mobile ├® necess├írio utilizar a modalidade 355. Para mais informa├º├Áes consultar ÔÇ£CliSiTef Finaliza├º├úo 
+Identificada.pdfÔÇØ. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  15 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+6 Configura├º├úo da CliSiTef para acesso a pinpads externos 
+Importante: esta Se├º├úo se aplica apenas ao cen├írio com smartphone/tablet conectado a um pinpad externo via 
+USB ou Bluetooth. Ela n├úo se aplica a terminais APOS que possuem pinpad interno e nem ao terminal Verifone 
+Carbon 10, que possui um pinpad externo fixo com comunica├º├úo interna. 
+A partir da vers├úo 4.0.0.10 da jCliSiTefI (Android), os seguintes pinpads externos s├úo suportados1: 
+Modelo Modo de acesso 
+PAX D200 Bluetooth 
+PAX D180 Bluetooth 
+PAX D150 Bluetooth (low energy) 
+Ingenico iCMP Bluetooth 
+Gertec MobiPin Bluetooth 
+Gertec MP 5 Bluetooth 
+Datecs Bluepad Bluetooth 
+Newland ME30S Bluetooth 
+Gertec PPC-900 e PPC-910 USB 
+Ingenico iPP-320 e iPP-350 USB 
+ 
+Importante: a comunica├º├úo com pinpad┬┤s USB s├│ ├® poss├¡vel em dispositivos Android 3.1 ÔÇ£HoneycombÔÇØ (API level 
+12) ou superior. 
+Para garantir acesso aos recursos de Bluetooth e redes requeridos pela CliSiTef na sua aplica├º├úo, ├® necess├írio incluir 
+algumas permiss├Áes no manifesto do aplicativo (arquivo AndroidManifest.xml): 
+ 
+<uses-permission android:name="android.permission.INTERNET"/> 
+<uses-permission android:name="android.permission.BLUETOOTH"/> 
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/> 
+ 
+Al├®m disso, para que a CliSiTef possa utilizar os pinpads Bluetooth suportados, os mesmos devem ser pareados 
+nas configura├º├Áes do Android.  
+Cada pinpad possui uma forma de pareamento e obten├º├úo do c├│digo. Estas instru├º├Áes de configura├º├úo dever├úo 
+ser obtidas com os fabricantes. 
+Importante: a comunica├º├úo com o pinpad ser├í feita obrigatoriamente no modo ÔÇ£Comunica├º├úo SeguraÔÇØ. Isto ├®, 
+o pinpad deve ter suporte a esta caracter├¡stica. 
+Para manter compatibilidade com vers├Áes anteriores, a CliSiTef adota a seguinte sequ├¬ncia de conex├úo: 
+1. Tenta-se obter a lista de dispositivos USB conectados. 
+2. Se reconhecer algum dos pinpads USB da lista acima, tenta-se fazer a conex├úo. 
+ 
+1 A lista de pinpad┬┤s USB est├í fixa internamente, pois cada dispositivo USB possui um Vendor ID e Product ID espec├¡ficos, e 
+que foram testados anteriormente pela Software Express. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  16 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+3. Se n├úo obter um dispositivo v├ílido, tenta obter um pinpad Bluetooth. Note que, neste caso, a interface 
+Bluetooth ser├í automaticamente ligada. Al├®m disso, a aplica├º├úo deve possuir permiss├Áes no manifesto 
+do projeto (veja a se├º├úo abaixo). 
+Para for├ºar a utiliza├º├úo da CliSiTef com exatamente um tipo de conex├úo com o pinpad (Bluetooth ou USB), 
+indique nos par├ómetros adicionais do m├®todo configuraIntSiTefInterativoEx() / configure() o par├ómetro TipoPinPad, 
+conforme a tabela abaixo: 
+Valor para TipoPinPad Descri├º├úo 
+ANDROID_AUTO Tenta obter conex├úo de acordo com a heur├¡stica acima. 
+ANDROID_USB Tenta obter conex├úo apenas com pinpad┬┤s USB. 
+ANDROID_BT Tenta obter conex├úo apenas com pinpad┬┤s Bluetooth. 
+ 
+Exemplo: 
+CliSiTef = new CliSiTef (this.getApplicationContext ()); 
+CliSiTef.configure ("10.100.100.108", "00000000", "SE000001", 
+"[TipoPinPad=ANDROID_BT;]"); 
+6.1 Filtro de pinpad bluetooth usando seu endere├ºo MAC 
+Na vers├úo Android, a aplica├º├úo pode passar o endere├ºo MAC da interface bluetooth do pinpad a ser utilizado. 
+Esta funcionalidade pode ser interessante para acelerar o processo de conex├úo com um pinpad espec├¡fico, 
+previamente pareado com o smartphone.  
+Para tanto, passe nos par├ómetros adicionais dos m├®todos configuraIntSiTefInterativoEx() / configure() o 
+par├ómetro PinPad.MAC com o MAC Address correspondente. 
+Exemplo: 
+ 
+clisitefi.configuraIntSiTefInterativoEx ("192.168.0.1", "00000000", "SE000001", 
+"[TipoPinPad=ANDROID_BT;PinPad.MAC=00:AE:BF:60:33:21;]"); 
+ 
+Nota: n├úo h├í distin├º├úo entre mai├║sculos e min├║sculos, no nome do par├ómetro ou de seu valor. 
+├ë importante ressaltar que os demais pinpads previamente pareados n├úo ser├úo utilizados. Entretanto, se for 
+habilitada a utiliza├º├úo de pinpad usb (via configura├º├úo anterior), poder-se-├í utilizar o pinpad USB que for 
+reconhecido. 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  17 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+6.2 Eventos de pinpad via Handler 
+ A tabela abaixo ilustra a lista de eventos enviados a aplica├º├úo para interface com o PinPad. Alguns eventos 
+podem ou n├úo ser devolvidos, dependendo de cada PinPad. 
+C├│digo dispon├¡vel na classe Descri├º├úo 
+EVT_INICIA_ATIVACAO_BT Evento indicando que ser├í ligado o adaptador BT do celular 
+EVT_FIM_ATIVACAO_BT Evento indicando t├®rmino da etapa de ativa├º├úo do adaptador BT do 
+celular 
+EVT_INICIA_AGUARDA_CONEXAO_PP Evento indicando que o usu├írio deve ligar o pinpad bluetooth 
+EVT_FIM_AGUARDA_CONEXAO_PP Indica conex├úo de um dispositivo bluetooth 
+EVT_PP_BT_CONFIGURANDO Indica in├¡cio de configura├º├úo com o dispositivo rec├®m-conectado 
+EVT_PP_BT_CONFIGURADO Indica sucesso na configura├º├úo do pinpad 
+EVT_PP_BT_DESCONECTADO Evento indicando fim de conex├úo com o pinpad bluetooth 
+EVT_INICIO_MODO_DISCOVER_BT Evento indicando in├¡cio da opera├º├úo de discover bluetooth. O PinPad 
+bluetooth estar├í apto a "enxergar" o celular para o primeiro 
+pareamento. 
+EVT_FIM_MODO_DISCOVER_BT Evento indicando finaliza├º├úo da opera├º├úo de discover bluetooth 
+(timeout). 
+ 
+6.3 Depura├º├úo da aplica├º├úo ao usar um pinpad USB 
+Para depura├º├úo da aplica├º├úo com pinpads USB, muitas vezes ser├í necess├írio colocar o dispositivo para 
+depura├º├úo TCP/IP, ao inv├®s do convencional cabo USB. Neste caso, siga os passos abaixo: 
+1. Conecte o aparelho no computador com o cabo USB. 
+2. Certifique-se que o dispositivo est├í com o modo ÔÇ£Depura├º├úo de USBÔÇØ habilitado. 
+3. Rode o comando: 
+adb tcpip 5555 
+ 
+4. Digite o comando de conex├úo ao dispositivo wifi, indicando seu IP (note que o DHCP pode dar IP┬┤s 
+din├ómicos a cada conex├úo): 
+adb connect <IP do dispositivo Android> 
+ 
+Exemplo, supondo que o dispositivo Android est├í no IP 192.168.0.7: 
+ 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  18 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+C:\>adb tcpip 5555 
+restarting in TCP mode port: 5555 
+ 
+C:\>adb connect 192.168.0.7 
+connected to 192.168.0.7:5555 
+ 
+Pronto, desta forma deve ser poss├¡vel fazer a depura├º├úo wi-fi pelo Eclipse. 
+Para retornar o adb ao modo USB, conecte o dispositivo novamente na porta USB de seu computador, e digite: 
+adb usb 
+Outras informa├º├Áes: 
+http://developer.android.com/guide/topics/connectivity/usb/index.html 
+  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  19 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+7 Integra├º├úo com terminais APOS 
+Importante: esta Se├º├úo se aplica apenas ao cen├írio com modelos de APOS. Ela n├úo se aplica a smartphones e 
+tablets convencionais que se conectam a um pinpad externo. No caso do Verifone Carbon 10, que possui um pinpad 
+externo fixo com comunica├º├úo interna, a Subse├º├úo 7.1 n├úo se aplica. 
+APOS, tamb├®m conhecidos como Smart POS, s├úo terminais POSs que utilizam o Android. Neste cap├¡tulo, s├úo 
+detalhadas as informa├º├Áes complementares para integrar a CliSiTef com terminais APOS que possuem pinpad 
+interno. 
+7.1 Pinpad virtual (m├®todo setActivity) 
+Diferentemente da arquitetura convencional, na qual ├® utilizado um pinpad externo e a comunica├º├úo com ele ├® 
+via USB/Bluetooth, este modelo de APOS possui pinpad interno. Dessa forma, a comunica├º├úo entre a camada de 
+aplica├º├úo e o pinpad ├® feita de forma direta e interna. 
+Entretanto, como este terminal n├úo possui teclado f├¡sico e tem somente um display, o pinpad precisa ser exibido 
+na mesma tela da aplica├º├úo que utiliza a CliSiTef. Para facilitar a integra├º├úo, a CliSiTef implementa uma interface 
+visual criando um ÔÇ£pinpad virtualÔÇØ2. Essa interface ├® composta por um display reduzido e um teclado personalizado 
+e ficar├í sobreposta ├á tela do aplicativo quando for necess├írio. 
+Em termos do fluxo de chamadas de fun├º├úo que a aplica├º├úo faz ├á CliSiTef, existe apenas um ├║nico m├®todo 
+adicional que os desenvolvedores para APOS com pinpad interno precisam chamar. Como mencionado 
+anteriormente, todo o resto do fluxo de chamadas ├á CliSiTef ├® o mesmo do cen├írio onde a aplica├º├úo ├® executada 
+num terminal com um pinpad externo. A aplica├º├úo deve chamar obrigatoriamente este m├®todo e ele est├í dispon├¡vel 
+na classe CliSiTef (para interface v2). 
+M├®todo 
+ 
+public void setActivity(Activity activity) 
+ 
+ 
+O par├ómetro activity deve ser a Activity que conduz o fluxo de chamadas ├á CliSiTef e que exibir├í o ÔÇ£pinpad 
+virtualÔÇØ, ou seja, deve ser a Activity que implementa a transa├º├úo com o SiTef. Recomendamos chamar o m├®todo 
+setActivity logo na callback onCreate desta Activity. 
+Importante: caso o m├®todo setActivity n├úo seja chamado no momento correto, a CliSiTef n├úo conseguir├í se 
+conectar ao pinpad interno e devolver├í Erro 31 (ERRO PINPAD) na realiza├º├úo das transa├º├Áes com pinpad. 
+ 
+2 Em alguns modelos, o pr├│prio sistema operacional do APOS desenha o teclado virtual, sem controle nenhum da aplica├º├úo 
+nem da CliSiTef. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  20 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+7.2 Bibliotecas do fabricante 
+Os fabricantes dos terminais APOS fornecem bibliotecas adicionais para suporte do pinpad e perif├®ricos 
+adicionais (impressora, leitor de c├│digo de barras, etc.). A CliSiTef, em particular, depende da Biblioteca 
+Compartilhada que prov├¬ o acesso ao pinpad, ent├úo ela precisa ser obrigatoriamente inclu├¡da no projeto. Por regra 
+geral, ├® responsabilidade do fabricante (Gertec, Ingenico, Verifone, etc.) ou do fornecedor do terminal prover o 
+suporte para essas bibliotecas. Por├®m, veja a seguir algumas recomenda├º├Áes para cada modelo. 
+ÔÇó Gertec GPOS700 (SDK antigo): incluir a biblioteca libppcomp.aar no classpath do projeto. Esse 
+pacote j├í possui as classes de impressora, portanto a biblioteca GPOS700_750v1.0.jar n├úo deve 
+ser inclu├¡da junto. A inclus├úo das duas bibliotecas causa erro de conflito na compila├º├úo (duplicidade de 
+classes dos pacotes wangpos.sdk4.*). ├ë importante tamb├®m se certificar com a Gertec de que o terminal 
+possui n├║mero de s├®rie. Se n├úo possuir, a CliSiTef indicar├í Erro 31 (ERRO PINPAD) ao tentar acessar o 
+pinpad. Outra causa de erro no pinpad ├® a falta da aplica├º├úo FactoryService, que deve ser instalada no 
+terminal. 
+ÔÇó Gertec GPOS700 (SDK atual): incluir as bibliotecas ppcomp-<vers├úo>.aar e payment-
+<vers├úo>.aar no classpath do projeto.  
+ÔÇó Ingenico A8: incluir a biblioteca bcapos-<vers├úo>.aar no classpath do projeto. Essa biblioteca 
+utiliza o framework de logging SLF4J, portanto ├® necess├írio incluir tamb├®m essa biblioteca (no caso do 
+Android Studio, incluir implementation 'org.slf4j:slf4j-api:1.7.25' no 
+build.gradle.). 
+ÔÇó Verifone Carbon 10: incluir as bibliotecas DeveloperSDK-<vers├úo>.aar e 
+Carbon_Connection-<vers├úo>.aar no classpath. Tamb├®m ├® necess├írio instalar a aplica├º├úo 
+PaymentService-<vers├úo>.apk. 
+A Software Express fornece esses arquivos apenas quando autorizada pelo fabricante. Caso sejam fornecidas 
+diretamente pelo fabricante ou outro fornecedor, ├® importante verificar a compatibilidade da vers├úo da CliSiTef 
+com as vers├Áes das bibliotecas do fabricante. A combina├º├úo n├úo homologada de vers├Áes diferentes pode causar 
+erros na aplica├º├úo (a Software Express n├úo garante o funcionamento correto). O arquivo VERSIONS.TXT do pacote 
+da CliSiTef informa as vers├Áes compat├¡veis. 
+7.3 Habilitando acessibilidade na CliSiTef 
+Para habilitar as configura├º├Áes de acessibilidade visual utiliza-se o par├ómetro abaixo nos par├ómetros adicionais 
+da fun├º├úo iniciaFuncaoSiTefInterativo. 
+Atualmente ├® usado somente para fazer a adequa├º├úo do pinpad virtual do GPOS700 para manta de 
+acessibilidade. Vers├úo m├¡nima da CliSiTef para utiliza├º├úo deste recurso: 7.0.116.29.r2 
+"AcessibilidadeVisual= 1"; 
+8 Arquivo de configura├º├úo: CLSIT 
+No documento ÔÇ£SiTef - Interface Simplificada com a aplica├º├úoÔÇØ consta que o arquivo de configura├º├úo da CliSiTef 
+├® ÔÇ£CliSiTef.iniÔÇØ, mas para as plataformas mobile utilizaremos a denomina├º├úo ÔÇÿCLSITÔÇÖ (sem extens├úo e em caixa alta). 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  21 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+O arquivo de configura├º├úo da CliSiTef (CLSIT) dever├í ser inclu├¡do como um ÔÇÿassetÔÇÖ da aplica├º├úo. Ao instanciar a 
+classe br.com.softwareexpress.sitef.android.CliSiTef, este arquivo ser├í copiado automaticamente para a pasta 
+ÔÇÿfilesÔÇÖ da ├írea de dados especificada para a aplica├º├úo: /data/data/(package)/files. 
+8.1 Trace 
+Por padr├úo, a grava├º├úo de informa├º├Áes de trace ├® desabilitada, para habilitar a grava├º├úo de traces para 
+diagn├│stico de problemas pela equipe da Software Express, deve-se adicionar as seguintes configura├º├Áes no 
+arquivo CLSIT: 
+[CliSiTef] 
+HabilitaTrace=1 
+ 
+[CliSiTefI] 
+HabilitaTrace=1 
+ 
+[PinPad] 
+HabilitaTrace=1 
+ChaveTrace= <Neste campo deve ser informada uma chave fornecida pelo suporte 
+t├®cnico da Software Express> 
+Os arquivos contendo o trace (CliSiTef*.dmp) s├úo gravados no diret├│rio de armazenamento externo (/sdcard). 
+Para que isso seja poss├¡vel, a aplica├º├úo precisa declarar no AndroidManifest.xml e, para API de n├¡vel 23 em diante, 
+solicitar a permiss├úo android.permission.WRITE_EXTERNAL_STORAGE. 
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"  
+ package="..." 
+ android:versionCode="1" 
+ android:versionName="1.0"> 
+ ... 
+ <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/> 
+ ... 
+</manifest> 
+Para API de n├¡vel 23 (Android 6.0) em diante, al├®m de declarar a permiss├úo, a aplica├º├úo tamb├®m precisa solicitar 
+ao usu├írio uma confirma├º├úo. Para realizar esse procedimento corretamente, recomendamos a consulta da 
+documenta├º├úo do Android: https://developer.android.com/training/permissions/requesting 
+Uma maneira simplificada de realizar essa solicita├º├úo ├® incluir o c├│digo abaixo no m├®todo onCreate da Activity 
+principal: 
+if (Build.VERSION.SDK_INT >= 23) { 
+  if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != 
+        PackageManager.PERMISSION_GRANTED) 
+  { 
+    requestPermissions( 
+       new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 
+       PERMISSION_ANDROID); 
+  } 
+} 
+ 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  22 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+Mas refor├ºamos a necessidade de consultar a documenta├º├úo oficial do Android para realizar o procedimento de 
+maneira apropriada para aplicativos de produ├º├úo. 
+A partir do Android 10 (API 29), n├úo ├® poss├¡vel mais solicitar a permiss├úo WRITE_EXTERNAL_STORAGE para 
+gravar no /sdcard. Veja sugest├Áes para contornar essa situa├º├úo na Se├º├úo 8.1.1. 
+Caso seja necess├írio gravar o trace em outro diret├│rio, utilize o par├ómetro DiretorioTrace. No exemplo abaixo, 
+configuramos a CliSiTef para armazenar o trace no diret├│rio ÔÇ£filesÔÇØ da aplica├º├úo: 
+[CliSiTef] 
+DiretorioTrace=./files 
+Devido a mudan├ºas na interpreta├º├úo do par├ómetro DiretorioTrace, recomendamos o seu uso apenas a partir da 
+vers├úo 117.7.r1. Em vers├Áes anteriores, o DiretorioTrace pode ser usado apenas para caminhos absolutos de at├® 
+50 caracteres (por exemplo: ÔÇ£/sdcardÔÇØ).  
+8.1.1 Restri├º├úo de grava├º├úo no Android 10 e posteriores 
+Consulte o artigo https://developer.android.com/training/data-storage/use-cases para informa├º├Áes mais 
+detalhadas e atualizadas sobre a quest├úo. 
+A partir da API 29, n├úo ├® mais poss├¡vel usar a permiss├úo WRITE_EXTERNAL_STORAGE para gravar dados no 
+diret├│rio /sdcard. Apresentamos nesta Se├º├úo algumas sugest├Áes para contornar essa limita├º├úo. Por├®m, antes de 
+aplicar um desses contornos, recomendamos que os desenvolvedores da aplica├º├úo se informem sobre a quest├úo 
+para tomar a decis├úo mais adequada (veja o artigo indicado na caixa de aviso acima). 
+1. Desativar o armazenamento com escopo. Caso a aplica├º├úo n├úo utilize recursos de APIs > 29, h├í duas 
+possibilidades para desativar essa nova restri├º├úo e manter o comportamento das APIs < 29. Ao escolher 
+uma das duas op├º├Áes abaixo, a aplica├º├úo n├úo precisar├í de nenhum outro ajuste para gravar os traces 
+no /sdcard. 
+a. Reduzir o targetSdkVersion do projeto para 28. 
+b. Manter o targetSdkVersion do projeto em 29 e definir 
+requestLegacyExternalStorage como true no AndroidManifest.xml. 
+2. Definir o DiretorioTrace com um caminho interno. Caso n├úo seja poss├¡vel diminuir o 
+targetSdkVersion, a aplica├º├úo pode definir no CLSIT o par├ómetro ÔÇ£DiretorioTrace=./filesÔÇØ, que 
+determina que a grava├º├úo do trace ocorra em um diret├│rio para o qual a aplica├º├úo n├úo necessita solicitar 
+permiss├úo. A desvantagem dessa solu├º├úo ├® que o acesso a esse diret├│rio s├│ pode ser feito pela pr├│pria 
+aplica├º├úo ou por ferramentas de desenvolvimento. Ent├úo a aplica├º├úo precisar├í implementar uma 
+maneira de extrair os arquivos. Seguem duas sugest├Áes. 
+a. Ativar a funcionalidade de Trace Rotativo no CLSIT. Essa funcionalidade, al├®m de limitar o 
+tamanho e rotacionar os arquivos de trace, permite tamb├®m envi├í-los para o servidor SiTef. 
+Dessa forma, as equipes de Suporte ou Opera├º├úo podem recuperar os arquivos. Esse envio deve 
+ser iniciado pela aplica├º├úo atrav├®s do menu Administrativo com intera├º├úo do operador (Fun├º├úo 
+110) ou diretamente pela Fun├º├úo 121, iniciada pelo operador ou automaticamente pela 
+aplica├º├úo. Consulte o documento ÔÇ£SiTef - Interface Simplificada com a aplica├º├úo.pdfÔÇØ para mais 
+detalhes. ├ë importante observar que essa funcionalidade dificulta a an├ílise em caso de erros de 
+rede, j├í que a rede ser├í necess├íria para enviar os arquivos. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  23 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+b. Utilizar o Storage Access Framework (SAF) para solicitar ao usu├írio o acesso de escrita ao 
+/sdcard (PrimaryStorageVolume). Dessa forma, ├® poss├¡vel gravar dados nesse diret├│rio usando 
+inst├óncias de DocumentFile. A aplica├º├úo dever├í ent├úo definir um crit├®rio para transferir os 
+arquivos de trace (CliSiTef.dmp*) do caminho interno escolhido para o /sdcard. 
+9 TLS (Transport Layer Security) 
+O TLS ├® um protocolo de seguran├ºa sucessor do SSL que protege - entre outras coisas - a transfer├¬ncia de dados 
+entre cliente e servidor como, por exemplo, CliSiTef e SiTef. 
+Atualmente, a CliSiTef aceita 3 provedores de TLS: Software Express, GSurf e WNB Comnect. 
+9.1 Arquitetura 
+O desenho abaixo apresenta a arquitetura da CliSiTef com TLS. 
+ 
+ 
+ 
+ 
+ 
+Nessa arquitetura, a comunica├º├úo entre PDV e SiTef ├® interceptada por um servidor TLS respons├ível pela 
+instala├º├úo e valida├º├úo dos certificados de seguran├ºa e por criptografar e descriptografar as mensagens. 
+Esse servidor mudar├í de acordo com o provedor de TLS utilizado. 
+9.2 Utilizando TLS da Software Express 
+S├úo utilizados os par├ómetros adicionais da fun├º├úo configuraIntSiTefInterativoEx para habilitar e configurar a 
+comunica├º├úo segura. 
+9.2.1 Habilitando a comunica├º├úo TLS na CliSiTef 
+Para que a CliSiTef utilize a comunica├º├úo TLS utiliza-se o par├ómetro abaixo nos par├ómetros adicionais da fun├º├úo 
+configuraIntSiTefInterativoEx. 
+"TipoComunicacaoExterna= SSL"; 
+ 
+SiTef  
+(Local / Servidor TLS PDV 
+ 
+Figura 1: Fluxo de envio das mensagens criptografadas do Terminal at├® o SiTef. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  24 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+9.2.2 Configurando o Certificado CA 
+Para que a CliSiTef possa validar certificados recebidos do servidor, um certificado CA deve ser fornecido nos 
+par├ómetros adicionais da fun├º├úo configuraIntSiTefInterativoEx. 
+ 
+ÔÇ£CaminhoCertificadoCA=ca_cert.pemÔÇØ; 
+9.3 Utilizando TLS da GSurf 
+9.3.1 Configurando a CliSiTef 
+Para utilizar o TLS provido pela GSurf, deve-se proceder conforme descrito abaixo: 
+ÔÇó Passar um endere├ºo de servidor IP n├úo vazio na fun├º├úo configuraIntSiTefInterativoEx 
+ÔÇó Incluir, nos par├ómetros adicionais da fun├º├úo configuraIntSiTefInterativoEx, as seguintes informa├º├Áes: 
+1. Tipo de comunica├º├úo externa ÔÇô indique no campo ÔÇ£TipoComunicacaoExternaÔÇØ o valor ÔÇ£GSURF.SSLÔÇØ. 
+2. Valor da OTP (One Time Password) ÔÇô indique seu valor no campo ÔÇ£GSurf.OTPÔÇØ. 
+3. ID ├║nico do terminal para amarra├º├úo com o certificado a ser instalado ÔÇô indique seu valor no campo 
+ÔÇ£TerminalUUIDÔÇØ. 
+4. Chave de ativa├º├úo ÔÇô com o objetivo de aumentar a seguran├ºa na instala├º├úo do certificado, a automa├º├úo 
+comercial poder├í acordar (se assim desejar), uma chave de ativa├º├úo juntamente ├á GSurf e indicar essa 
+chave de ativa├º├úo no campo GSurf.ChaveAtivacao. 
+Exemplo: 
+"[TipoComunicacaoExterna=GSURF.SSL;GSurf.OTP=11111111;TerminalUUID=FE32141EBA; 
+GSurf.ChaveAtivacao=TST-SE000001;]"; 
+ 
+Todos esses par├ómetros (com exce├º├úo do par├ómetro GSurf.ChaveAtivacao), podem tamb├®m ser passados 
+durante o fluxo de coleta3 (atrav├®s do comando 29), nos seguintes TipoCampos: 
+ 
+TipoCampo Descri├º├úo 
+4090 OTP (fornecido pela GSurf) 
+4094 Terminal UUID (n├║mero ├║nico de terminal) 
+ 
+ 
+3 Somente em rotinas iterativas. 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  25 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+9.3.2 Situa├º├Áes de Erros 
+Caso ocorra algum erro de conex├úo, instala├º├úo do certificado ou transmiss├úo durante a comunica├º├úo GSurf ser├úo 
+retornados detalhes do erro nos campos correspondentes: 
+TipoCampo Descri├º├úo 
+4091 Erro na instala├º├úo do certificado 
+4092 Erro de transmiss├úo ou rede durante a comunica├º├úo 
+ 
+Em vers├Áes mais antigas do Android (4.x), ├® necess├írio carregar a biblioteca gsurf_rsa na aplica├º├úo Java antes 
+de instanciar a biblioteca CliSitef. Segue o trecho que deve ser inserido: 
+try { 
+  System.loadLibrary ("gsurf_rsa");  
+} catch (Exception e) { 
+} 
+ 
+Clisitef = new CliSiTef (this.getApplicationContext()); 
+configuraCliSiTef (); 
+9.3.3 C├│digos de Erro 
+Segue a tabela com os c├│digos de erro e suas causas fornecida pela GSurf: 
+C├│digo Constante Descri├º├úo 
+0 NO_SSL_ERROR Quando n├úo ocorrem erros 
+1 ERROR_OPEN_UDP_SOCKET Erro ao iniciar um socket UDP. 
+3 ERROR_WRITE_UDP Erro ao enviar dados UDP. Verificar se existe algum firewall 
+bloqueando a sa├¡da UDP na porta 443 dos IPs da Gsurf. 
+4 ERROR_READ_UDP Erro ao receber dados UDP. Verificar se existe algum firewall 
+bloqueando a sa├¡da UDP na porta 443 dos IPs da Gsurf. 
+5 ERROR_GET_SERVER_IP Erro interno da lib Gsurf. A mensagem recebida do servidor est├í 
+corrompida. Tentar novamente. Avisar desenvolvimento da 
+Gsurf. 
+6 ERROR_MESSAGE Erro interno da lib Gsurf. A mensagem recebida do servidor est├í 
+corrompida. Tentar novamente. Avisar desenvolvimento da 
+Gsurf. 
+7 ERROR_GET_SERVER_PORT Erro interno da lib Gsurf. A mensagem recebida do servidor est├í 
+corrompida. Tentar novamente. Avisar desenvolvimento da 
+Gsurf. 
+8 ERROR_CREATE_SSL_CONTEXT Erro ao criar o contexto SSL. Avisar desenvolvimento da Gsurf.  
+9 ERROR_CONFIG Erro ao inicializar as vari├íveis da biblioteca. Avisar 
+desenvolvimento da Gsurf.  
+10 ERROR_OPEN_FILE Erro ao salvar arquivos de configura├º├úo. Favor verificar 
+permiss├Áes no diret├│rio especificado.  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  26 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+11 ERROR_OPEN_CERTIFICATE O certificado est├í presente, por├®m o arquivo est├í corrompido. 
+Gerar um novo certificado e instala-lo no dispositivo. 
+12 ERROR_DECODE_CERTIFICATE Esse erro ocorre, possivelmente, por esse certificado n├úo ser 
+deste dispositivo, ou por altera├º├úo de hardware que afetaram a 
+gera├º├úo de fingerprint. Gerar um novo certificado e instala-lo no 
+dispositivo. 
+13 ERROR_INVALID_CERTIFICATE Erro ao verificar a chave privada do certificado. Gerar um novo 
+certificado e instala-lo no dispositivo. 
+14 ERROR_OPEN_TCP_SOCKET Erro ao inicializar um socket TCP.  
+15 ERROR_TCP_CONNECTION Erro ao estabelecer a conex├úo TCP. Sem conex├úo com internet 
+ou os IPs da Gsurf est├úo bloqueados no firewall. 
+16 ERROR_HANDSHAKE_SSL Erro durante o handshake SSL, pode ser causado por desconex├úo 
+durante o processo, certificado expirado, certificado revogado, 
+cifra n├úo suportada ou CA n├úo confi├ível. Verificar certificado e 
+logs do servidor Gsurf. 
+17 ERROR_CRITICAL_HADSHAKE_SSL Erro durante o handshake SSL, pode ser causado por desconex├úo 
+durante o processo, certificado expirado, certificado revogado, 
+cifra n├úo suportada ou CA n├úo confi├ível. Verificar certificado e 
+logs do servidor Gsurf. 
+18 ERROR_SSL_WRITE Falha na conex├úo SSL, possivelmente desconectado no momento 
+do envio dos dados.  
+19 ERROR_SSL_READ Falha na conex├úo SSL, possivelmente desconectado no momento 
+do recebimento dos dados. 
+21 ERROR_MEMORY_ALLOCATE Erro ao alocar mem├│ria RAM, poss├¡vel falta de mem├│ria RAM. 
+22 ERROR_SERVICE_CONNECT Erro ao se conectar com servi├ºo de destino. Verificar se o servi├ºo 
+est├í em execu├º├úo ou se o IP e porta configurados est├úo corretos. 
+26 ERROR_MALFORMED_IP O IP informado para fun├º├úo de conex├úo est├í com formato 
+incorreto.  
+27 ERROR_RFC1918 O IP informado para fun├º├úo de conex├úo n├úo est├í de acordo com a 
+RFC 1918 (somente IPs de redes locais s├úo suportados). 
+28 ERROR_NO_CERTIFICATE Ocorre quando o certificado n├úo est├í presente. ├ë necess├írio 
+executar a instala├º├úo do certificado.  
+29 ERROR_NO_SSL_CONNECTION Erro de conex├úo SSL, ocorre por tentar enviar/receber 
+informa├º├Áes sem que a conex├úo esteja estabelecida. Efetuar a 
+conex├úo. 
+31 ERROR_SAVE_CERTIFICATE N├úo foi poss├¡vel salvar o certifcado no dispositivo. Verificar se h├í 
+permiss├úo para escrita no local especificado. 
+32 ERROR_RECEIVE_CERTIFICATE Ocorreu algum erro durante o processo de recebimento do 
+certifcado. Provavelmente o OTP utilizado n├úo ├® v├ílido ou a 
+chave de ativa├º├úo n├úo ├® v├ílida. ├ë preciso verificar se o OTP ├® 
+v├ílido e tentar novamente. 
+33 ERROR_DNS Erro ao resolver um endere├ºo DNS. Poss├¡vel falta de conex├úo 
+com a internet. Verificar conex├úo com a internet e tentar 
+novamente. 
+34 ERROR_OPEN_UDP_SOCKET Erro ao iniciar um socket UDP.  
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  27 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+35 ERROR_SERVER_DEFINITION Erro ao definir o endere├ºo do servidor. Verificar conex├úo com a 
+internet. Verificar se os IPs da Gsurf est├úo liberados no firewall. 
+Tentar novamente. 
+36 ERROR_AUTHENTICATION Erro durante o processo de autentica├º├úo. Pode ser causado por 
+token errado ou dessincronizado. Entrar em contato com a Gsurf 
+para sincronizar os tokens. 
+37 ERROR_UNKNOWN_ERROR Erro desconhecido. 
+38 ERROR_EMPTY_MESSAGE A mensagem recebida do servidor est├í vazia e deve ser 
+descartada. 
+39 ERROR_MOUNT Erro ao montar a parti├º├úo para salvar os dados no dispositivo. 
+40 ERROR_TIMEOUT O timeout de leitura foi atingido sem resposta do servidor. 
+Verificar conex├úo com a internet. Tentar novamente. 
+41 ERROR_INVALID_OTP O OTP informado est├í com o formato errado. Verificar com a 
+Gsurf se o OTP est├í correto. 
+ 
+9.4 Utilizando TLS da WNB COMNECT 
+Para utilizar o TLS provido pela WNB, deve-se proceder conforme descrito abaixo: 
+ÔÇó Passar um endere├ºo de servidor IP n├úo vazio na fun├º├úo configuraIntSiTefInterativoEx; 
+ÔÇó Incluir no arquivo de configura├º├Áes da CliSiTef (CLSIT na plataforma android) a configura├º├úo 
+ÔÇ£TipoComunicacaoExternaÔÇØ com o valor ÔÇ£COMNECTÔÇØ na se├º├úo [Geral]. 
+ÔÇó Caso requisitado ao iniciar uma transa├º├úo, digitar o registro de ativa├º├úo informado pela Comnect. 
+o Se o serial number do aparelho android estiver registrado na Comnect, n├úo vai ser necess├írio a 
+inser├º├úo do registro de ativa├º├úo. 
+Exemplo da configura├º├úo no arquivo CLSIT: 
+[Geral] 
+TipoComunicacaoExterna=COMNECT 
+  
+A interface de comunica├º├úo SSL em parceria com a Comnect foi incorporada na vers├úo v.6.0.114.43 r1 da 
+CliSiTef. Vers├Áes anteriores n├úo tem suporte a esta comunica├º├úo. 
+   
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  28 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+10 Hist├│rico de Altera├º├Áes 
+Data Autor Vers├úo CliSiTef Descri├º├úo 
+26/01/18 
+Alexandre 
+Hamada 
+2.04  
+Deriva├º├úo do documento Interface CliSiTef Mobile, 
+v2.03. 
+Inclus├úo de nova interface CliSiTef para Android. 
+26/01/18 
+Alexandre 
+Hamada 
+2.05  
+Corre├º├úo na vers├úo m├¡nima da CliSiTef para interface v2 
+(6.0.114.43 r1) 
+29/01/18 
+Alexandre 
+Hamada 
+2.06  Corre├º├Áes na interface de algumas fun├º├Áes. 
+28/03/18 
+Ricardo 
+Shimanuki 
+2.07  
+Cria├º├úo do Anexo A referente ├á Integra├º├úo da CliSiTef 
+para o POS GPOS700. 
+11/05/18 Leo Ueda 2.08  Altera├º├úo no Anexo A para torn├í-lo mais gen├®rico. 
+30/05/18 Leo Ueda 2.09  
+Explica├º├úo do erro de assinatura causado pelo strip 
+autom├ítico da libclisitef.so. Inclus├úo de mais detalhes de 
+APOS, incluindo Carbon. Reorganiza├º├úo das se├º├Áes para 
+distribuir melhor as informa├º├Áes sobre APOS. 
+12/07/18 Leo Ueda 2.10  
+Atualiza├º├úo das instru├º├Áes sobre as bibliotecas dos 
+fabricantes. 
+03/09/18 
+Ricardo 
+Shimanuki 
+2.11  Cria├º├úo de um novo cap├¡tulo referente ao TLS. 
+11/12/18 Leo Ueda 2.12  
+Atualiza├º├úo das instru├º├Áes sobre as bibliotecas dos 
+fabricantes. Vers├úo 6.1.115.5.r1 liberada para Carbon e 
+Mobile (Gertec MP 5). 
+29/05/19 Bruno Soave 2.13  
+Remo├º├úo das sec├Áes referentes a Interface v1. 
+A partir dessa vers├úo do documento toda e qualquer 
+men├º├úo a interface da Clisitef ├® referente a Interface v2.  
+29/05/19 Bruno Soave 2.14  Corre├º├úo de alguns termos. 
+18/01/21 Leo Ueda 2.15 116.28.r1 
+Inclus├úo do pinpad Bluetooth ME30S na lista de 
+compat├¡veis. 
+02/03/21 Larissa Amaral 2.16 116.29.r2 
+Inclui item referente ├á habilita├º├úo da acessibilidade na 
+CliSiTef. 
+03/06/21 Leo Ueda 2.17 117.7.r1 
+Sugest├Áes para implementa├º├úo de grava├º├úo de arquivos 
+de trace no Android 10 e mais recentes. 
+Remo├º├úo das instru├º├Áes para configura├º├úo de certificado 
+de cliente da comunica├º├úo TLS da Software Express. A 
+funcionalidade continua presente, mas o seu uso em 
+produ├º├úo n├úo est├í dispon├¡vel. 
+16/07/2021 
+Francisco 
+Rodrigues 
+ Thiago Nicacio 
+2.18  
+Inclus├úo do item 5.1.3, exemplo de tratamento de 
+eventos onData e onTransactionResult 
+15/10/2021 Leo Ueda 2.19  
+Inclus├úo de mais detalhes sobre a solicita├º├úo de 
+permiss├úo din├ómica para gera├º├úo do Trace (Android 6 
+em diante). 
+ 
+ 
+ 
+CliSiTef ÔÇô Interface com a aplica├º├úo - Android  (vers├úo 2.21) 
+Copyright Software Express  29 de 29 
+Este documento cont├®m informa├º├Áes CONFIDENCIAIS e PROPRIET├üRIAS da Software Express e n├úo pode ser publicado ou distribu├¡do sem a sua  permiss├úo, 
+por escrito. C├│pias e transmiss├Áes s├úo permitidas somente para uso interno. 
+ 
+ 
+06/05/2022 Bruno Soave 2.20  Inclus├úo da fun├º├úo finishTransactionIdentified. 
+21/07/2022 Bruno Soave 2.21  Remo├º├úo da fun├º├úo finishTransactionIdentified. 
+ 
+ 
