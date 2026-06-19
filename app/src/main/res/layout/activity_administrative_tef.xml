@@ -27,12 +27,20 @@
             android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReimpressao"
+                android:id="@+id/btnAdministrativo"
                 style="@style/Widget.AppSiTefSmartPos.Button.Primary"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
-                android:text="Reimpressao" />
+                android:text="Administrativo" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReimpressao"
+                style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:text="Reimpressão" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnCancelamento"

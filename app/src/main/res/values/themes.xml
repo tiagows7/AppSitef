@@ -21,6 +21,7 @@
         <item name="android:colorBackground">@color/brand_background</item>
         <item name="colorOnSurface">@color/brand_on_surface</item>
         <item name="colorOutline">@color/brand_outline</item>
+        <item name="colorOutlineVariant">@color/brand_outline</item>
         <item name="android:statusBarColor" tools:targetApi="l">?attr/colorSurface</item>
     </style>
 

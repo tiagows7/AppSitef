@@ -2,6 +2,7 @@ package com.appsitef.smartpos.tef
 
 import android.app.AlertDialog
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.util.Log
 import android.view.LayoutInflater
@@ -20,11 +21,17 @@ import com.appsitef.smartpos.sales.model.SaleContext
 import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
 import com.appsitef.smartpos.sales.network.CartaoMovimentoPostRequest
 import com.appsitef.smartpos.sales.network.CartaoRemoteRepository
+import com.appsitef.smartpos.sales.network.DatasnapPathEncoder
+import com.appsitef.smartpos.sales.network.RestJsonParser
+import com.appsitef.smartpos.ui.MoneyInputMask
+import com.appsitef.smartpos.ui.WaitDialog
 import java.nio.charset.Charset
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -36,6 +43,7 @@ class CliSiTefTransactionController(
     private val cliSiTef: CliSiTef,
     private val saleAbastecimentos: List<Abastecimento>,
     private val saleContext: SaleContext,
+    private val operationMode: TefOperationMode = TefOperationMode.SALE,
     private val onStatus: (String) -> Unit,
     private val onOperatorMessage: (String?) -> Unit,
     private val onShowPixQrCode: (payload: String, hint: String?) -> Unit,
@@ -68,12 +76,18 @@ class CliSiTefTransactionController(
     private var receiptFinalizeRunnable: Runnable? = null
     private var pendingConfirmWatchdogRunnable: Runnable? = null
     private var receiptFinalizeScheduled = false
+    @Volatile
+    private var merchantReceiptPrinted = false
+    private val merchantReceiptLock = Object()
+    private var transactionApproved = false
+    private val approvedFinalizationStarted = AtomicBoolean(false)
     private val receipt = TefReceiptData()
     private val transactionResult = TefTransactionResult()
     private val abastecimentoRepository by lazy { AbastecimentoRemoteRepository(activity) }
     private val cartaoRepository by lazy { CartaoRemoteRepository(activity) }
     private var saleAmount: String = ""
     private var saleOperator: String = ""
+    private var cartaoMovimentoRegistrado = false
     private var confirmingPendingAfterSuccess = false
     private val pendingConfirmQueue = ArrayDeque<TefFiscalRef>()
     private var pendingConfirmOnComplete: (() -> Unit)? = null
@@ -106,7 +120,11 @@ class CliSiTefTransactionController(
         ensureReadyAttempts = 0
         receipt.viaCliente = ""
         receipt.viaEstabelecimento = ""
+        merchantReceiptPrinted = false
+        transactionApproved = false
+        approvedFinalizationStarted.set(false)
         receiptFinalizeScheduled = false
+        cartaoMovimentoRegistrado = false
         resetTransactionResult()
         confirmingPendingAfterSuccess = false
         pendingConfirmQueue.clear()
@@ -123,6 +141,13 @@ class CliSiTefTransactionController(
                 TefPreferences.getTerminalId(activity).isBlank()
             ) {
                 finishWithError("Terminal TEF não configurado. Salve a configuração antes da venda.")
+                return
+            }
+            if (operationMode == TefOperationMode.ADMIN_REPRINT &&
+                operator.filter { it.isDigit() }.isBlank() &&
+                TefPreferences.getOperator(activity).filter { it.isDigit() }.isBlank()
+            ) {
+                finishWithError(activity.getString(R.string.tef_admin_operator_required))
                 return
             }
 
@@ -146,12 +171,13 @@ class CliSiTefTransactionController(
         taxInvoiceDate = SimpleDateFormat("yyyyMMdd", Locale.US).format(now)
         taxInvoiceTime = SimpleDateFormat("HHmmss", Locale.US).format(now)
         taxInvoiceNumber = TefPendingFiscal.nextCoupon(activity)
-        additionalParameters = restrictions.ifBlank {
+        val transactionParameters = buildStartTransactionParameters(restrictions)
+        additionalParameters = transactionParameters.ifBlank {
             TefPreferences.getSitefConfigureAdditionalParams(activity)
         }
 
         ensureCliSiTefReady {
-            configureAndStart(functionId, amount, operator, restrictions)
+            configureAndStart(functionId, amount, operator, transactionParameters)
         }
     }
 
@@ -194,11 +220,19 @@ class CliSiTefTransactionController(
         }
 
         val trnAmount = TefAmountFormatter.toCliSiTefAmount(amount)
-        val cashierOperator = operator.ifBlank { TefPreferences.getOperator(activity) }
+        val cashierOperator = formatOperatorForSitef(
+            operator.ifBlank { TefPreferences.getOperator(activity) },
+        )
 
         TefPendingFiscal.save(activity, taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
         TefSessionGuard.markTransactionStarted(taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
         onStatus("Iniciando transação TEF…")
+
+        Log.d(
+            TAG,
+            "startTransaction fn=$functionId transacoes=[${TefPreferences.resolveTransacoesHabilitadas(activity)}] " +
+                "params=[$restrictions]",
+        )
 
         val startResult = cliSiTef.startTransaction(
             this,
@@ -208,7 +242,7 @@ class CliSiTefTransactionController(
             taxInvoiceDate,
             taxInvoiceTime,
             cashierOperator,
-            restrictions
+            restrictions,
         )
 
         if (startResult != 0 && startResult != CliSiTefConstants.CONTINUA) {
@@ -351,20 +385,9 @@ class CliSiTefTransactionController(
                         )
                     } else if (resultCode == 0) {
                         awaitingCancelFinish = false
-                        showOperatorMessage("Confirmando transação…")
-                        val finishResult = cliSiTef.finishTransaction(
-                            this,
-                            CliSiTefConstants.CONFIRM_TRANSACTION,
-                            taxInvoiceNumber,
-                            taxInvoiceDate,
-                            taxInvoiceTime,
-                            additionalParameters.ifBlank {
-                                TefPreferences.getSitefConfigureAdditionalParams(activity)
-                            }
-                        )
-                        if (finishResult != 0 && finishResult != CliSiTefConstants.CONTINUA) {
-                            finishWithError(describeFinishError(finishResult))
-                        }
+                        transactionApproved = true
+                        // Manual CliSiTef v2.21: comprovante (122) chega no onData do estágio 2 (finishTransaction).
+                        confirmApprovedTransaction()
                     } else if (!settled.get()) {
                         val fallback = describeCancelResult(resultCode)
                         finalizeInteractiveFunction(
@@ -386,10 +409,10 @@ class CliSiTefTransactionController(
                         }
                         processNextPendingConfirmation()
                     } else if (resultCode == 0) {
-                        confirmRemainingPendingTransactions {
-                            TefSessionGuard.markSessionClean()
-                            TefPendingFiscal.clearAll(activity)
-                            scheduleFinalizeWithReceiptOnce()
+                        // Deixa o onData do estágio 2 (comprovante) ser processado antes do pipeline.
+                        activity.window.decorView.post {
+                            flushPendingCliSiTefMessages()
+                            runServerRegistrationPipeline()
                         }
                     } else {
                         finishWithError(describeTransactionError(resultCode))
@@ -472,9 +495,18 @@ class CliSiTefTransactionController(
                 continueWith("")
             }
 
+            CliSiTef.CMD_GET_FIELD_CURRENCY -> {
+                if (shouldAutoContinueDuringFinalize()) {
+                    continueWith("")
+                    return
+                }
+                showCurrencyInput(buffer, minLength, maxLength) { value ->
+                    continueWith(value)
+                }
+            }
+
             CliSiTef.CMD_GET_FIELD,
             CliSiTef.CMD_GET_MASKED_FIELD,
-            CliSiTef.CMD_GET_FIELD_CURRENCY,
             CliSiTef.CMD_GET_FIELD_BARCODE,
             CliSiTef.CMD_GET_FIELD_CHEQUE,
             CliSiTef.CMD_GET_FIELD_TRACK,
@@ -483,8 +515,14 @@ class CliSiTefTransactionController(
                     continueWith("")
                     return
                 }
-                showInput(buffer, minLength, maxLength) { value ->
-                    continueWith(value)
+                if (isSaleValuePrompt(buffer)) {
+                    showCurrencyInput(buffer, minLength, maxLength) { value ->
+                        continueWith(value)
+                    }
+                } else {
+                    showInput(buffer, minLength, maxLength) { value ->
+                        continueWith(value)
+                    }
                 }
             }
 
@@ -670,6 +708,33 @@ class CliSiTefTransactionController(
                 .setPositiveButton("OK") { _, _ -> onValue(input.text.toString()) }
                 .setNegativeButton("Cancelar") { _, _ -> abort() }
         )
+    }
+
+    /** Campo monetário — máscara `1.234,56` (Delphi `FormatarMoeda`). */
+    @Suppress("UNUSED_PARAMETER")
+    private fun showCurrencyInput(
+        prompt: String,
+        minLength: Int,
+        maxLength: Int,
+        onValue: (String) -> Unit
+    ) {
+        val input = EditText(activity)
+        MoneyInputMask.apply(input)
+        showTrackedDialog(
+            AlertDialog.Builder(activity)
+                .setMessage(prompt.ifBlank { "Informe o valor:" })
+                .setView(input)
+                .setPositiveButton("OK") { _, _ ->
+                    val masked = MoneyInputMask.getFormattedText(input)
+                    onValue(TefAmountFormatter.toSitefCurrencyDigits(masked))
+                }
+                .setNegativeButton("Cancelar") { _, _ -> abort() }
+        )
+    }
+
+    private fun isSaleValuePrompt(prompt: String): Boolean {
+        val lower = prompt.lowercase(Locale.getDefault())
+        return lower.contains("valor") || lower.contains("r$")
     }
 
     private fun showTrackedDialog(builder: AlertDialog.Builder): AlertDialog {
@@ -1398,6 +1463,20 @@ class CliSiTefTransactionController(
     private fun describePinpadRoutineError(): String =
         "Erro pinpad (-43). Verifique FactoryService Gertec."
 
+    private fun formatOperatorForSitef(raw: String): String {
+        val digits = raw.filter { it.isDigit() }
+        if (digits.isEmpty()) return "001"
+        return digits.takeLast(3).padStart(3, '0')
+    }
+
+    /** Delphi `transacoesHabilitadas` no Intent / m-SiTef `restricoes`. */
+    private fun buildStartTransactionParameters(explicitRestrictions: String): String {
+        return TefClsitConfig.mergeStartTransactionParameters(
+            explicitRestrictions = explicitRestrictions,
+            transacoesHabilitadas = TefPreferences.resolveTransacoesHabilitadas(activity),
+        )
+    }
+
     private fun describeFinishError(code: Int): String = when (code) {
         -12 -> "Erro ao confirmar TEF: transação anterior pendente."
         else -> "Erro ao finalizar TEF: $code"
@@ -1467,6 +1546,22 @@ class CliSiTefTransactionController(
         }
     }
 
+    private fun flushPendingCliSiTefMessagesBlocking() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            flushPendingCliSiTefMessages()
+            return
+        }
+        val latch = CountDownLatch(1)
+        activity.runOnUiThread {
+            try {
+                flushPendingCliSiTefMessages()
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(3, TimeUnit.SECONDS)
+    }
+
     private fun scheduleFinalizeWithReceiptOnce() {
         if (receiptFinalizeScheduled) return
         receiptFinalizeScheduled = true
@@ -1524,7 +1619,10 @@ class CliSiTefTransactionController(
         transactionResult.tipoParc = ""
         transactionResult.nsuSitef = ""
         transactionResult.nsuHost = ""
+        transactionResult.nsuTransacaoOriginal = ""
+        transactionResult.valorCancelamento = ""
         transactionResult.codAutorizacao = ""
+        transactionResult.chaveNota = ""
     }
 
     private fun capturePaymentMenuSelection(label: String, menuCode: String) {
@@ -1544,9 +1642,29 @@ class CliSiTefTransactionController(
         val value = buffer.trim()
         if (value.isBlank()) return
 
+        if (TipoCamposJsonParser.applyTo(transactionResult, value)) {
+            Log.d(
+                TAG,
+                "TIPO_CAMPOS capturado nsuOriginal=[${transactionResult.nsuTransacaoOriginal}] " +
+                    "nsuCancel=[${transactionResult.nsuHost}] campo105=[${transactionResult.sitefDataHoraRaw}]",
+            )
+            return
+        }
+
         when (fieldId) {
             CliSiTefFieldIds.NSU_SITEF -> transactionResult.nsuSitef = value
             CliSiTefFieldIds.NSU_HOST -> transactionResult.nsuHost = value
+            CliSiTefFieldIds.NSU_TRANSACAO_ORIGINAL,
+            CliSiTefFieldIds.NSU_TRANSACAO_ORIGINAL_ALT -> {
+                if (value.length >= transactionResult.nsuTransacaoOriginal.length) {
+                    transactionResult.nsuTransacaoOriginal = value
+                }
+            }
+            CliSiTefFieldIds.VALOR_CANCELAMENTO -> {
+                if (value.length >= transactionResult.valorCancelamento.length) {
+                    transactionResult.valorCancelamento = value
+                }
+            }
             CliSiTefFieldIds.CODIGO_AUTORIZACAO -> transactionResult.codAutorizacao = value
             CliSiTefFieldIds.CODIGO_REDE -> transactionResult.redeAut = value
             CliSiTefFieldIds.TIPO_CARTAO -> transactionResult.bandeira = value
@@ -1577,6 +1695,10 @@ class CliSiTefTransactionController(
             CliSiTefFieldIds.COMPROVANTE_ESTAB -> {
                 if (text.length >= receipt.viaEstabelecimento.length) {
                     receipt.viaEstabelecimento = text
+                    Log.d(TAG, "via estabelecimento capturada len=${text.length}")
+                    synchronized(merchantReceiptLock) {
+                        merchantReceiptLock.notifyAll()
+                    }
                 }
             }
         }
@@ -1605,6 +1727,8 @@ class CliSiTefTransactionController(
             receiptFinalizeRunnable = null
             if (settled.get()) return@Runnable
 
+            flushPendingCliSiTefMessagesBlocking()
+
             val estabLen = receipt.viaEstabelecimento.length
             val clienteLen = receipt.viaCliente.length
             Log.d(
@@ -1612,8 +1736,7 @@ class CliSiTefTransactionController(
                 "receipt poll attempt=$attempt estab=$estabLen cliente=$clienteLen"
             )
 
-            val hasReceipt = receipt.hasMerchantCopy() || receipt.hasCustomerCopy()
-            if (!hasReceipt && attempt < RECEIPT_POLL_MAX_ATTEMPTS) {
+            if (!receipt.hasMerchantCopy() && attempt < RECEIPT_POLL_MAX_ATTEMPTS) {
                 pollReceiptsAndFinalize(attempt + 1)
                 return@Runnable
             }
@@ -1629,35 +1752,455 @@ class CliSiTefTransactionController(
         receiptFinalizeRunnable = null
     }
 
-    private fun finalizeSuccessfulTransactionWithReceipt() {
-        onHidePixQrCode()
-        iniciarRegistroVendaNoServidorEmBackground()
-
-        Log.d(
-            TAG,
-            "finalizeSuccessfulTransactionWithReceipt estab=${receipt.viaEstabelecimento.length} " +
-                "cliente=${receipt.viaCliente.length}"
+    private fun confirmApprovedTransaction() {
+        showOperatorMessage("Confirmando transação…")
+        val finishResult = cliSiTef.finishTransaction(
+            this,
+            CliSiTefConstants.CONFIRM_TRANSACTION,
+            taxInvoiceNumber,
+            taxInvoiceDate,
+            taxInvoiceTime,
+            additionalParameters.ifBlank {
+                TefPreferences.getSitefConfigureAdditionalParams(activity)
+            }
         )
+        if (finishResult != 0 && finishResult != CliSiTefConstants.CONTINUA) {
+            finishWithError(describeFinishError(finishResult))
+        }
+    }
 
-        when {
-            !receipt.hasMerchantCopy() && !receipt.hasCustomerCopy() -> {
-                appendStatus("Comprovante não recebido do SiTef.")
-                finishWithSuccess("Transação TEF concluída com sucesso.")
-            }
-            !receipt.hasMerchantCopy() -> {
-                promptCustomerReceiptPrint()
-            }
-            else -> {
-                showOperatorMessage(activity.getString(R.string.tef_printing_merchant))
-                printReceiptAsync(receipt.viaEstabelecimento) {
-                    activity.runOnUiThread { promptCustomerReceiptPrint() }
+    /**
+     * Estágio 2 (Delphi [ResultadoTEF]): imprime via estabelecimento de forma bloqueante
+     * e só depois confirma pendências / grava no servidor.
+     */
+    private fun runServerRegistrationPipeline() {
+        if (!approvedFinalizationStarted.compareAndSet(false, true)) {
+            Log.w(TAG, "serverRegistrationPipeline já em execução")
+            return
+        }
+        if (operationMode.isReceiptOnlyAdminFlow()) {
+            runReceiptOnlyAdminPipeline()
+            return
+        }
+
+        Thread({
+            try {
+                onHidePixQrCode()
+                ensureMerchantReceiptPrintedBeforeServer()
+
+                val confirmLatch = CountDownLatch(1)
+                activity.runOnUiThread {
+                    if (operationMode.skipsPendingConfirmOnFinalize()) {
+                        TefSessionGuard.markSessionClean()
+                        TefPendingFiscal.clearAll(activity)
+                        confirmLatch.countDown()
+                    } else {
+                        confirmRemainingPendingTransactions {
+                            TefSessionGuard.markSessionClean()
+                            TefPendingFiscal.clearAll(activity)
+                            confirmLatch.countDown()
+                        }
+                    }
                 }
+                confirmLatch.await(2, TimeUnit.MINUTES)
+
+                if (!merchantReceiptPrinted) {
+                    ensureMerchantReceiptPrintedBeforeServer()
+                }
+                blockServerUntilMerchantReceiptPrinted()
+
+                val serverStatusMessage = if (operationMode.skipsServerRegistration()) {
+                    null
+                } else {
+                    when (operationMode) {
+                        TefOperationMode.ADMIN_CANCELLATION -> {
+                            activity.runOnUiThread {
+                                showOperatorMessage(activity.getString(R.string.tef_admin_cancellation_saving))
+                            }
+                            registrarCancelamentoNoServidor()
+                        }
+                        TefOperationMode.SALE -> {
+                            activity.runOnUiThread {
+                                showOperatorMessage("Registrando venda no servidor…")
+                            }
+                            registrarVendaNoServidor()
+                        }
+                        else -> null
+                    }
+                }
+                activity.runOnUiThread {
+                    serverStatusMessage?.let { appendStatus(it) }
+                    proceedAfterServerRegistration()
+                }
+            } catch (error: Throwable) {
+                Log.e(TAG, "serverRegistrationPipeline", error)
+                activity.runOnUiThread {
+                    appendStatus("Erro ao finalizar: ${error.message ?: error.javaClass.simpleName}")
+                }
+                blockServerUntilMerchantReceiptPrinted()
+                if (!operationMode.skipsServerRegistration()) {
+                    runCatching {
+                        when (operationMode) {
+                            TefOperationMode.ADMIN_CANCELLATION -> registrarCancelamentoNoServidor()
+                            TefOperationMode.SALE -> registrarVendaNoServidor()
+                            else -> null
+                        }
+                    }.onSuccess { serverMessage ->
+                        activity.runOnUiThread {
+                            serverMessage?.let { appendStatus(it) }
+                            proceedAfterServerRegistration()
+                        }
+                    }.onFailure { serverError ->
+                        Log.e(TAG, "serverRegistrationPipeline retry", serverError)
+                        activity.runOnUiThread { proceedAfterServerRegistration() }
+                    }
+                } else {
+                    activity.runOnUiThread { proceedAfterServerRegistration() }
+                }
+            }
+        }, "tef-server-pipeline").start()
+    }
+
+    /**
+     * Reimpressão (114) e administrativo (110) — sem servidor; não bloqueia 45s aguardando via 122.
+     */
+    private fun runReceiptOnlyAdminPipeline() {
+        Thread({
+            try {
+                onHidePixQrCode()
+                activity.runOnUiThread {
+                    TefSessionGuard.markSessionClean()
+                    TefPendingFiscal.clearAll(activity)
+                }
+                captureAdminReceiptsBriefly()
+                printAdminReceiptsIfAvailable()
+            } catch (error: Throwable) {
+                Log.e(TAG, "receiptOnlyAdminPipeline", error)
+                activity.runOnUiThread {
+                    appendStatus("Erro ao finalizar: ${error.message ?: error.javaClass.simpleName}")
+                }
+            } finally {
+                activity.runOnUiThread { completeTransactionFlow() }
+            }
+        }, "tef-admin-receipt-pipeline").start()
+    }
+
+    private fun captureAdminReceiptsBriefly() {
+        val deadline = SystemClock.elapsedRealtime() + ADMIN_RECEIPT_CAPTURE_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            flushPendingCliSiTefMessagesBlocking()
+            if (receipt.hasMerchantCopy() || receipt.hasCustomerCopy()) {
+                return
+            }
+            Thread.sleep(ADMIN_RECEIPT_POLL_MS)
+        }
+        flushPendingCliSiTefMessagesBlocking()
+    }
+
+    /** Delphi reimpressão: via cliente e depois estabelecimento, se existirem. */
+    private fun printAdminReceiptsIfAvailable() {
+        when (operationMode) {
+            TefOperationMode.ADMIN_REPRINT -> {
+                if (receipt.hasCustomerCopy()) {
+                    activity.runOnUiThread {
+                        showOperatorMessage(activity.getString(R.string.tef_printing_customer))
+                    }
+                    printReceiptBlocking(receipt.viaCliente, "cliente")
+                }
+                if (receipt.hasMerchantCopy() && !merchantReceiptPrinted) {
+                    printMerchantReceiptBlocking()
+                }
+            }
+            TefOperationMode.ADMIN_MENU -> {
+                if (receipt.hasMerchantCopy()) {
+                    printMerchantReceiptBlocking()
+                } else if (receipt.hasCustomerCopy()) {
+                    activity.runOnUiThread {
+                        showOperatorMessage(activity.getString(R.string.tef_printing_customer))
+                    }
+                    printReceiptBlocking(receipt.viaCliente, "cliente")
+                }
+            }
+            else -> Unit
+        }
+        if (!receipt.hasMerchantCopy() && !receipt.hasCustomerCopy()) {
+            Log.d(TAG, "adminReceipt: nenhum comprovante capturado mode=$operationMode")
+            activity.runOnUiThread {
+                appendStatus("SiTef concluído sem comprovante para impressão no PDV.")
             }
         }
     }
 
-    /** Delphi: grava no servidor em paralelo — não bloqueia impressão dos comprovantes. */
-    private fun iniciarRegistroVendaNoServidorEmBackground() {
+    private fun printReceiptBlocking(text: String, label: String) {
+        if (text.isBlank()) return
+        val latch = CountDownLatch(1)
+        activity.runOnUiThread {
+            try {
+                GertecReceiptPrinter.printReceipt(activity, text)
+                appendStatus("Via do $label enviada à impressora.")
+            } catch (error: Throwable) {
+                Log.w(TAG, "printReceiptBlocking $label", error)
+                val mapped = GertecReceiptPrinter.mapPrintError(error)
+                val message = mapped.message?.ifBlank { null } ?: "Erro ao imprimir comprovante."
+                appendStatus("Erro ao imprimir via do $label: $message")
+                showOperatorMessage(message)
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(2, TimeUnit.MINUTES)
+    }
+
+    /**
+     * Aguarda o SiTef liberar o comprovante (campo 122, estágio 2) e imprime na UI thread.
+     */
+    private fun ensureMerchantReceiptPrintedBeforeServer() {
+        if (merchantReceiptPrinted) return
+
+        activity.runOnUiThread {
+            val messageRes = if (receipt.hasMerchantCopy()) {
+                R.string.tef_printing_merchant
+            } else {
+                R.string.tef_waiting_receipt
+            }
+            showOperatorMessage(activity.getString(messageRes))
+        }
+
+        val deadline = SystemClock.elapsedRealtime() + MERCHANT_RECEIPT_MAX_WAIT_MS
+        var attempt = 0
+        while (!merchantReceiptPrinted && SystemClock.elapsedRealtime() < deadline) {
+            flushPendingCliSiTefMessagesBlocking()
+            if (receipt.hasMerchantCopy()) {
+                printMerchantReceiptBlocking()
+                if (merchantReceiptPrinted) {
+                    Log.d(TAG, "ensureMerchantPrint ok attempt=$attempt")
+                    return
+                }
+            }
+            waitForMerchantReceiptSignal(
+                if (attempt == 0) MERCHANT_RECEIPT_INITIAL_DELAY_MS else MERCHANT_RECEIPT_POLL_INTERVAL_MS
+            )
+            attempt++
+        }
+
+        if (!merchantReceiptPrinted && receipt.hasMerchantCopy()) {
+            printMerchantReceiptBlocking()
+        }
+        if (!merchantReceiptPrinted) {
+            Log.w(TAG, "ensureMerchantPrint: comprovante não disponível após espera")
+        }
+    }
+
+    /** Não grava no servidor enquanto houver via do estabelecimento capturada e não impressa. */
+    private fun blockServerUntilMerchantReceiptPrinted() {
+        val deadline = SystemClock.elapsedRealtime() + MERCHANT_RECEIPT_BLOCK_SERVER_MS
+        while (!merchantReceiptPrinted && receipt.hasMerchantCopy() &&
+            SystemClock.elapsedRealtime() < deadline
+        ) {
+            Log.w(TAG, "bloqueando servidor — aguardando impressão da via estabelecimento")
+            flushPendingCliSiTefMessagesBlocking()
+            printMerchantReceiptBlocking()
+            if (!merchantReceiptPrinted) {
+                waitForMerchantReceiptSignal(MERCHANT_RECEIPT_POLL_INTERVAL_MS)
+            }
+        }
+        if (!merchantReceiptPrinted && receipt.hasMerchantCopy()) {
+            Log.e(TAG, "via estabelecimento não impressa — servidor bloqueado até timeout")
+        }
+    }
+
+    private fun waitForMerchantReceiptSignal(timeoutMs: Long) {
+        synchronized(merchantReceiptLock) {
+            try {
+                merchantReceiptLock.wait(timeoutMs)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+    }
+
+    private fun printMerchantReceiptBlocking() {
+        if (merchantReceiptPrinted) {
+            Log.d(TAG, "printMerchantReceiptBlocking: já impressa")
+            return
+        }
+        if (!receipt.hasMerchantCopy()) {
+            Log.w(TAG, "printMerchantReceiptBlocking: comprovante estabelecimento vazio")
+            return
+        }
+
+        val receiptText = receipt.viaEstabelecimento
+        Log.d(TAG, "printMerchantReceiptBlocking: imprimindo len=${receiptText.length}")
+        val latch = CountDownLatch(1)
+        var printError: Throwable? = null
+        activity.runOnUiThread {
+            try {
+                if (!merchantReceiptPrinted && receipt.hasMerchantCopy()) {
+                    GertecReceiptPrinter.printReceipt(activity, receiptText)
+                    merchantReceiptPrinted = true
+                    appendStatus("Via do estabelecimento enviada à impressora.")
+                    Log.d(TAG, "printMerchantReceiptBlocking ok")
+                }
+            } catch (error: Throwable) {
+                merchantReceiptPrinted = false
+                printError = error
+                Log.w(TAG, "printMerchantReceiptBlocking", error)
+                val mapped = GertecReceiptPrinter.mapPrintError(error)
+                val message = mapped.message?.ifBlank { null } ?: "Erro ao imprimir via do estabelecimento."
+                appendStatus("Erro ao imprimir via estabelecimento: $message")
+                showOperatorMessage(message)
+                Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+            } finally {
+                latch.countDown()
+            }
+        }
+        latch.await(2, TimeUnit.MINUTES)
+        if (printError != null) {
+            Log.w(TAG, "printMerchantReceiptBlocking falhou após latch")
+        }
+    }
+
+    private fun finalizeSuccessfulTransactionWithReceipt() {
+        if (approvedFinalizationStarted.get()) return
+        runServerRegistrationPipeline()
+    }
+
+    private fun proceedAfterServerRegistration() {
+        Log.d(
+            TAG,
+            "finalizeSuccessfulTransactionWithReceipt mode=$operationMode estab=${receipt.viaEstabelecimento.length} " +
+                "cliente=${receipt.viaCliente.length} chaveNota=[${transactionResult.chaveNota}] " +
+                "movimentoOk=$cartaoMovimentoRegistrado"
+        )
+
+        if (operationMode == TefOperationMode.ADMIN_CANCELLATION) {
+            TefTerminalTotalsStore.recordCancelledAfterApproval(
+                activity,
+                resolveCancelledAmount(),
+            )
+        }
+
+        when {
+            operationMode.isReceiptOnlyAdminFlow() -> completeTransactionFlow()
+            !receipt.hasMerchantCopy() && !receipt.hasCustomerCopy() -> {
+                appendStatus("Comprovante não recebido do SiTef.")
+                completeTransactionFlow()
+            }
+            else -> promptCustomerReceiptPrint()
+        }
+    }
+
+    private fun TefOperationMode.isReceiptOnlyAdminFlow(): Boolean =
+        this == TefOperationMode.ADMIN_REPRINT || this == TefOperationMode.ADMIN_MENU
+
+    private fun TefOperationMode.skipsServerRegistration(): Boolean = isReceiptOnlyAdminFlow()
+
+    private fun TefOperationMode.skipsPendingConfirmOnFinalize(): Boolean =
+        this == TefOperationMode.ADMIN_CANCELLATION ||
+            this == TefOperationMode.ADMIN_REPRINT ||
+            this == TefOperationMode.ADMIN_MENU
+
+    /**
+     * Aguarda campos do cancelamento (Delphi `TIPO_CAMPOS` / estágio 2) antes do POST.
+     */
+    private fun waitForCancelamentoFieldsCaptured() {
+        val deadline = SystemClock.elapsedRealtime() + CANCEL_FIELDS_MAX_WAIT_MS
+        while (SystemClock.elapsedRealtime() < deadline) {
+            flushPendingCliSiTefMessagesBlocking()
+            val hasNsuOriginal = transactionResult.nsuTransacaoOriginal.isNotBlank()
+            val hasNsuCancel = transactionResult.nsuHost.isNotBlank()
+            if (hasNsuOriginal && hasNsuCancel) {
+                return
+            }
+            Thread.sleep(CANCEL_FIELDS_POLL_MS)
+        }
+        flushPendingCliSiTefMessagesBlocking()
+    }
+
+    /**
+     * Delphi `CancelaCartao` — grava cancelamento administrativo no servidor.
+     */
+    private fun registrarCancelamentoNoServidor(): String? {
+        waitForCancelamentoFieldsCaptured()
+
+        val nsuOriginal = transactionResult.nsuTransacaoOriginal.trim()
+        val nsuCancel = transactionResult.nsuHost.trim()
+        val raw105 = transactionResult.sitefDataHoraRaw.trim()
+        val fallbackRaw = when {
+            transactionResult.dataTransacao.isNotBlank() -> transactionResult.dataTransacao
+            ::taxInvoiceDate.isInitialized -> taxInvoiceDate
+            else -> ""
+        }
+        val dataCancelamento = TefTransactionFieldParser.ensureDataSitefDotted(
+            raw105.ifBlank { fallbackRaw },
+        )
+
+        Log.d(
+            TAG,
+            "registrarCancelamentoNoServidor pdv=[${TefPreferences.getOperator(activity)}] " +
+                "nsuOriginal=[$nsuOriginal] nsuCancel=[$nsuCancel] " +
+                "campo105=[$raw105] fallback=[$fallbackRaw] datasitef=[$dataCancelamento] " +
+                "valor=[${transactionResult.valorCancelamento}]",
+        )
+
+        if (nsuOriginal.isBlank() || nsuCancel.isBlank()) {
+            return "NSU do cancelamento não capturado — servidor não atualizado."
+        }
+        if (!dataCancelamento.contains('.') || dataCancelamento.filter { it.isDigit() }.length < 8) {
+            return "Data SiTef não capturada — cancelamento não registrado no servidor."
+        }
+
+        return try {
+            val result = cartaoRepository.cancelaCartao(
+                pdv = TefPreferences.getOperator(activity),
+                data = dataCancelamento,
+                nsuHost = nsuOriginal,
+                nsuCanc = nsuCancel,
+            )
+            if (result.success) {
+                activity.getString(R.string.tef_admin_cancellation_saved)
+            } else {
+                result.message.ifBlank { "Erro ao salvar cancelamento no servidor." }
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "registrarCancelamentoNoServidor", error)
+            error.message ?: "Erro ao salvar cancelamento no servidor."
+        }
+    }
+
+    private fun resolveCancelledAmount(): Double {
+        val fromField146 = transactionResult.valorCancelamento.trim()
+        if (fromField146.isNotBlank()) {
+            RestJsonParser.parseDecimalString(fromField146).takeIf { it > 0.0 }?.let { return it }
+        }
+
+        val fromSale = TefAmountFormatter.toCliSiTefAmount(saleAmount).toLongOrNull() ?: 0L
+        if (fromSale > 0L) return fromSale / 100.0
+
+        val receiptText = when {
+            receipt.viaEstabelecimento.isNotBlank() -> receipt.viaEstabelecimento
+            receipt.viaCliente.isNotBlank() -> receipt.viaCliente
+            else -> return 0.0
+        }
+        val normalized = receiptText.uppercase(Locale.getDefault()).replace("\\n", "\n")
+        val valueIndex = normalized.indexOf("VALOR")
+        if (valueIndex < 0) return 0.0
+
+        val fragment = normalized.substring(valueIndex + 5).trim()
+        val commaIndex = fragment.indexOf(',')
+        if (commaIndex < 0) return 0.0
+
+        val digitsBeforeComma = fragment.substring(0, commaIndex).filter { it.isDigit() || it == '.' }
+        val centsPart = fragment.substring(commaIndex + 1).take(2).filter { it.isDigit() }
+        val normalizedAmount = "$digitsBeforeComma.$centsPart"
+        return normalizedAmount.toDoubleOrNull() ?: 0.0
+    }
+
+    /**
+     * Grava abastecimentos + `cartao_movimento` após a via do estabelecimento.
+     * Retorna mensagem de status (ou null se tudo OK) e preenche [transactionResult.chaveNota].
+     */
+    private fun registrarVendaNoServidor(): String? {
         val (nsuHost, horaTransacao) = resolvePaymentRegistrationFields()
         Log.d(
             TAG,
@@ -1666,75 +2209,78 @@ class CliSiTefTransactionController(
                 "valor=[$saleAmount] operador=[$saleOperator]"
         )
 
-        Thread({
-            var abastecimentoOk = true
-            try {
-                if (saleAbastecimentos.isNotEmpty()) {
-                    if (nsuHost.isBlank()) {
-                        abastecimentoOk = false
-                        activity.runOnUiThread {
-                            appendStatus("NSU TEF não capturado — abastecimentos não registrados no servidor.")
-                        }
-                    } else {
-                        abastecimentoRepository.registrarAbastecimentosPagamento(
-                            abastecimentos = saleAbastecimentos,
-                            cartaonsu = nsuHost,
-                            cartaohora = horaTransacao,
-                        )
-                    }
-                }
-
-                if (abastecimentoOk) {
-                    if (nsuHost.isBlank()) {
-                        error("NSU TEF não capturado — movimento de cartão não registrado.")
-                    }
-                    val request = CartaoMovimentoPostRequest.fromTefSale(
-                        pdv = TefPreferences.getOperator(activity),
-                        terminal = TefPreferences.getTerminalId(activity),
-                        saleOperator = saleOperator,
-                        saleAmount = saleAmount,
-                        customerCode = saleContext.customerCode,
-                        cpfCnpj = saleContext.cpfCnpj,
-                        vehicle = saleContext.vehicle,
-                        km = saleContext.km,
-                        result = transactionResult,
-                        nsuHost = nsuHost,
-                        horaSitef = horaTransacao,
-                        taxInvoiceDate = taxInvoiceDate,
+        var abastecimentoOk = true
+        return try {
+            if (saleAbastecimentos.isNotEmpty()) {
+                if (nsuHost.isBlank()) {
+                    abastecimentoOk = false
+                    "NSU TEF não capturado — abastecimentos não registrados no servidor."
+                } else {
+                    abastecimentoRepository.registrarAbastecimentosPagamento(
+                        abastecimentos = saleAbastecimentos,
+                        cartaonsu = nsuHost,
+                        cartaohora = horaTransacao,
                     )
-                    cartaoRepository.registrarCartaoMovimento(request)
-                }
-
-                activity.runOnUiThread {
-                    if (saleAbastecimentos.isNotEmpty()) {
-                        appendStatus("Abastecimentos registrados no servidor.")
-                    }
-                    appendStatus("Movimento de cartão registrado no servidor.")
-                }
-            } catch (error: Throwable) {
-                Log.w(TAG, "registrarVendaNoServidor", error)
-                val message = error.message?.ifBlank { null }
-                    ?: "Erro ao registrar venda no servidor."
-                activity.runOnUiThread {
-                    appendStatus(message)
-                    Toast.makeText(
-                        activity,
-                        "Erro ao salvar venda — venda pode não entrar no caixa.",
-                        Toast.LENGTH_LONG
-                    ).show()
                 }
             }
-        }, "tef-registrar-venda").start()
+
+            if (abastecimentoOk) {
+                if (nsuHost.isBlank()) {
+                    error("NSU TEF não capturado — movimento de cartão não registrado.")
+                }
+                val request = CartaoMovimentoPostRequest.fromTefSale(
+                    pdv = TefPreferences.getOperator(activity),
+                    terminal = TefPreferences.getTerminalId(activity),
+                    saleOperator = saleOperator,
+                    saleAmount = saleAmount,
+                    customerCode = saleContext.customerCode,
+                    cpfCnpj = saleContext.cpfCnpj,
+                    vehicle = saleContext.vehicle,
+                    km = saleContext.km,
+                    result = transactionResult,
+                    nsuHost = nsuHost,
+                    horaSitef = horaTransacao,
+                    taxInvoiceDate = taxInvoiceDate,
+                )
+                val movimento = cartaoRepository.registrarCartaoMovimento(request)
+                cartaoMovimentoRegistrado = movimento.registrado
+                transactionResult.chaveNota = movimento.chaveNota
+            }
+
+            buildList {
+                if (saleAbastecimentos.isNotEmpty() && abastecimentoOk) {
+                    add("Abastecimentos registrados no servidor.")
+                }
+                if (abastecimentoOk) {
+                    add("Movimento de cartão registrado no servidor.")
+                    if (transactionResult.chaveNota.isNotBlank()) {
+                        add("Chave da nota: ${transactionResult.chaveNota}")
+                    }
+                }
+            }.joinToString(separator = "\n").ifBlank { null }
+        } catch (error: Throwable) {
+            Log.w(TAG, "registrarVendaNoServidor", error)
+            val message = error.message?.ifBlank { null }
+                ?: "Erro ao registrar venda no servidor."
+            activity.runOnUiThread {
+                Toast.makeText(
+                    activity,
+                    "Erro ao salvar venda — venda pode não entrar no caixa.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            message
+        }
     }
 
     private fun promptCustomerReceiptPrint() {
         if (!receipt.hasCustomerCopy()) {
-            finishWithSuccess("Transação TEF concluída com sucesso.")
+            completeTransactionFlow()
             return
         }
 
         if (activity.isFinishing) {
-            finishWithSuccess("Transação TEF concluída com sucesso.")
+            completeTransactionFlow()
             return
         }
 
@@ -1747,9 +2293,55 @@ class CliSiTefTransactionController(
                     dialog.dismiss()
                     showOperatorMessage(activity.getString(R.string.tef_printing_customer))
                     printReceiptAsync(receipt.viaCliente) {
-                        activity.runOnUiThread {
-                            finishWithSuccess("Transação TEF concluída com sucesso.")
-                        }
+                        activity.runOnUiThread { completeTransactionFlow() }
+                    }
+                }
+                .setNegativeButton(R.string.no) { dialog, _ ->
+                    dialog.dismiss()
+                    completeTransactionFlow()
+                }
+        )
+    }
+
+    /** Delphi: após comprovantes TEF, pergunta impressão do cupom fiscal (somente venda). */
+    private fun completeTransactionFlow() {
+        val successMessage = when (operationMode) {
+            TefOperationMode.ADMIN_CANCELLATION ->
+                activity.getString(R.string.tef_admin_cancellation_done)
+            TefOperationMode.ADMIN_REPRINT ->
+                activity.getString(R.string.tef_admin_reprint_done)
+            TefOperationMode.ADMIN_MENU ->
+                activity.getString(R.string.tef_admin_menu_done)
+            TefOperationMode.SALE -> "Transação TEF concluída com sucesso."
+        }
+        if (activity.isFinishing) {
+            finishWithSuccess(successMessage)
+            return
+        }
+        if (operationMode == TefOperationMode.ADMIN_CANCELLATION ||
+            operationMode == TefOperationMode.ADMIN_REPRINT ||
+            operationMode == TefOperationMode.ADMIN_MENU
+        ) {
+            finishWithSuccess(successMessage)
+            return
+        }
+        if (transactionResult.chaveNota.isBlank() && !cartaoMovimentoRegistrado) {
+            finishWithSuccess(successMessage)
+            return
+        }
+        promptNfeCupomPrint()
+    }
+
+    private fun promptNfeCupomPrint() {
+        showTrackedDialog(
+            AlertDialog.Builder(activity)
+                .setTitle(R.string.tef_print_nfe_title)
+                .setMessage(R.string.tef_print_nfe_message)
+                .setCancelable(false)
+                .setPositiveButton(R.string.yes) { dialog, _ ->
+                    dialog.dismiss()
+                    printNfeCupomAsync {
+                        finishWithSuccess("Transação TEF concluída com sucesso.")
                     }
                 }
                 .setNegativeButton(R.string.no) { dialog, _ ->
@@ -1757,6 +2349,56 @@ class CliSiTefTransactionController(
                     finishWithSuccess("Transação TEF concluída com sucesso.")
                 }
         )
+    }
+
+    private fun printNfeCupomAsync(onComplete: () -> Unit) {
+        val chaveNota = transactionResult.chaveNota
+        if (chaveNota.isBlank()) {
+            val message = activity.getString(R.string.tef_print_nfe_chave_missing)
+            appendStatus(message)
+            showOperatorMessage(message)
+            Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+            onComplete()
+            return
+        }
+
+        showOperatorMessage(activity.getString(R.string.tef_printing_nfe))
+        val waitDialog = WaitDialog.show(activity, R.string.tef_printing_nfe)
+
+        Thread({
+            try {
+                Log.d(
+                    TAG,
+                    "printNfeCupom modelo=${NfeChaveAccessKey.modeloFromChave(chaveNota)} " +
+                        "tipo=${NfeChaveAccessKey.documentLabel(chaveNota)}"
+                )
+                val xmlBytes = cartaoRepository.downloadNfeXml(chaveNota)
+                val receipt = NfeXmlReceiptFormatter.formatForThermalPrinter(
+                    xmlBytes = xmlBytes,
+                    chaveNota = chaveNota,
+                )
+                GertecReceiptPrinter.printNfeCupom(activity, receipt)
+                activity.runOnUiThread {
+                    appendStatus(activity.getString(R.string.tef_print_nfe_success))
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "printNfeCupomAsync", error)
+                val mapped = GertecReceiptPrinter.mapPrintError(error)
+                val message = mapped.message?.ifBlank { null }
+                    ?: error.message
+                    ?: activity.getString(R.string.tef_print_nfe_error, "")
+                activity.runOnUiThread {
+                    appendStatus(activity.getString(R.string.tef_print_nfe_error, message))
+                    showOperatorMessage(message)
+                    Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                activity.runOnUiThread {
+                    waitDialog.dismiss()
+                    onComplete()
+                }
+            }
+        }, "tef-print-nfe").start()
     }
 
     private fun printReceiptAsync(text: String, onComplete: () -> Unit) {
@@ -1815,8 +2457,16 @@ class CliSiTefTransactionController(
         private const val ENSURE_READY_MAX_ATTEMPTS = 5
         private const val RECEIPT_FINALIZE_DELAY_MS = 2500L
         private const val RECEIPT_POLL_INTERVAL_MS = 1000L
-        private const val RECEIPT_POLL_MAX_ATTEMPTS = 5
+        private const val RECEIPT_POLL_MAX_ATTEMPTS = 10
+        private const val MERCHANT_RECEIPT_INITIAL_DELAY_MS = 200L
+        private const val MERCHANT_RECEIPT_POLL_INTERVAL_MS = 500L
+        private const val MERCHANT_RECEIPT_MAX_WAIT_MS = 45_000L
+        private const val MERCHANT_RECEIPT_BLOCK_SERVER_MS = 60_000L
         private const val PENDING_CONFIRM_TIMEOUT_MS = 8000L
+        private const val CANCEL_FIELDS_MAX_WAIT_MS = 8_000L
+        private const val CANCEL_FIELDS_POLL_MS = 150L
+        private const val ADMIN_RECEIPT_CAPTURE_MS = 3_000L
+        private const val ADMIN_RECEIPT_POLL_MS = 120L
 
         fun isSdkPresent(): Boolean {
             return try {

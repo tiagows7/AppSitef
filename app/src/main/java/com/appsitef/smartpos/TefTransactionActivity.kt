@@ -15,6 +15,7 @@ import com.appsitef.smartpos.tef.CliSiTefHolder
 import com.appsitef.smartpos.tef.CliSiTefTransactionController
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
 import com.appsitef.smartpos.tef.TefOperatorMessagePanel
+import com.appsitef.smartpos.tef.TefOperationMode
 import com.appsitef.smartpos.tef.TefPixQrCodePanel
 import com.appsitef.smartpos.ui.MoneyInputMask
 import com.google.android.material.button.MaterialButton
@@ -75,6 +76,9 @@ class TefTransactionActivity : AppCompatActivity() {
         val amount = intent.getStringExtra(EXTRA_AMOUNT).orEmpty()
         val operator = intent.getStringExtra(EXTRA_OPERATOR).orEmpty()
         val functionId = intent.getIntExtra(EXTRA_FUNCTION, CliSiTefConstants.FUNCTION_MENU)
+        val operationMode = intent.getStringExtra(EXTRA_OPERATION_MODE)
+            ?.let { runCatching { TefOperationMode.valueOf(it) }.getOrNull() }
+            ?: TefOperationMode.SALE
         val saleAbastecimentos = AbastecimentoIntentSerializer.fromJson(
             intent.getStringExtra(EXTRA_SALE_ABASTECIMENTOS_JSON)
         )
@@ -82,18 +86,27 @@ class TefTransactionActivity : AppCompatActivity() {
             intent.getStringExtra(EXTRA_SALE_CONTEXT_JSON)
         )
 
-        if (amount.isBlank()) {
+        if (amount.isBlank() && operationMode == TefOperationMode.SALE) {
             showFatal("Valor da venda não informado.")
             return
         }
 
-        tvTefTransactionAmount.text = formatAmountForDisplay(amount)
+        tvTefTransactionAmount.text = when (operationMode) {
+            TefOperationMode.ADMIN_CANCELLATION ->
+                getString(R.string.tef_admin_cancellation_label)
+            TefOperationMode.ADMIN_REPRINT ->
+                getString(R.string.tef_admin_reprint_label)
+            TefOperationMode.ADMIN_MENU ->
+                getString(R.string.tef_admin_menu_label)
+            TefOperationMode.SALE -> formatAmountForDisplay(amount)
+        }
 
         controller = CliSiTefTransactionController(
             activity = this,
             cliSiTef = cliSiTef,
             saleAbastecimentos = saleAbastecimentos,
             saleContext = saleContext,
+            operationMode = operationMode,
             onStatus = { line -> appendStatus(line) },
             onOperatorMessage = { message -> operatorMessagePanel.show(message) },
             onShowPixQrCode = { payload, hint -> pixQrCodePanel.show(payload, hint) },
@@ -127,9 +140,10 @@ class TefTransactionActivity : AppCompatActivity() {
 
         operatorMessagePanel.show(getString(R.string.tef_operator_message_waiting))
         appendStatus("Conectando pinpad / SiTef…")
+        val effectiveAmount = amount.ifBlank { "0" }
         controller?.startSale(
             functionId = functionId,
-            amount = amount,
+            amount = effectiveAmount,
             operator = operator,
             restrictions = ""
         )
@@ -178,6 +192,7 @@ class TefTransactionActivity : AppCompatActivity() {
         const val EXTRA_AMOUNT = "extra_tef_amount"
         const val EXTRA_OPERATOR = "extra_tef_operator"
         const val EXTRA_FUNCTION = "extra_tef_function"
+        const val EXTRA_OPERATION_MODE = "extra_tef_operation_mode"
         const val EXTRA_SALE_ABASTECIMENTOS_JSON = "extra_sale_abastecimentos_json"
         const val EXTRA_SALE_CONTEXT_JSON = "extra_sale_context_json"
         const val EXTRA_TEF_RESULT_JSON = "extra_tef_result_json"
@@ -187,12 +202,14 @@ class TefTransactionActivity : AppCompatActivity() {
             amount: String,
             operator: String,
             functionId: Int = CliSiTefConstants.FUNCTION_MENU,
+            operationMode: TefOperationMode = TefOperationMode.SALE,
             saleAbastecimentosJson: String = "[]",
             saleContextJson: String = "{}",
         ) = android.content.Intent(context, TefTransactionActivity::class.java).apply {
             putExtra(EXTRA_AMOUNT, amount)
             putExtra(EXTRA_OPERATOR, operator)
             putExtra(EXTRA_FUNCTION, functionId)
+            putExtra(EXTRA_OPERATION_MODE, operationMode.name)
             putExtra(EXTRA_SALE_ABASTECIMENTOS_JSON, saleAbastecimentosJson)
             putExtra(EXTRA_SALE_CONTEXT_JSON, saleContextJson)
         }

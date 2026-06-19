@@ -20,7 +20,7 @@ object CliSiTefAssetInstaller {
         copyAssetIfNeeded(context, ASSET_CHEQUES_INI, ASSET_CHEQUES_INI)
         copyAssetIfNeeded(context, ASSET_CHEQUES_INI, FILE_CHEQUE_INI)
         ensureClsitPresent(context)
-        syncTransacoesHabilitadas(context)
+        syncClsitGeralSection(context)
     }
 
     /** Garante CLSIT em filesDir (base do asset) para a lib nativa ler [Geral]. */
@@ -28,26 +28,50 @@ object CliSiTefAssetInstaller {
         copyAssetIfNeeded(context, ASSET_CLSIT, ASSET_CLSIT)
     }
 
-    /**
-     * Atualiza [Geral]/TransacoesHabilitadas no CLSIT com [TefPreferences.getTefTransacoesHabilitadas].
-     */
+    /** Atualiza [Geral] e trace rotativo no CLSIT do filesDir (base para menu admin 110). */
     fun syncTransacoesHabilitadas(context: Context) {
+        syncClsitGeralSection(context)
+    }
+
+    private fun syncClsitGeralSection(context: Context) {
         TefPreferences.loadModuloIniIfExists(context)
-        val transacoes = TefPreferences.getTefTransacoesHabilitadas(context)
+        val transacoes = TefPreferences.resolveTransacoesHabilitadas(context)
         if (transacoes.isBlank()) return
 
         ensureClsitPresent(context)
         val clsitFile = File(context.filesDir, ASSET_CLSIT)
         if (!clsitFile.exists()) return
 
-        val normalized = TefClsitConfig.normalizeTransacoesHabilitadas(transacoes)
-        val updated = TefClsitConfig.patchIniSectionValue(
-            content = clsitFile.readText(),
+        var content = clsitFile.readText()
+        content = TefClsitConfig.patchIniSectionValue(
+            content = content,
             section = "Geral",
             key = "TransacoesHabilitadas",
-            value = normalized
+            value = TefClsitConfig.normalizeTransacoesHabilitadas(transacoes),
         )
-        clsitFile.writeText(updated)
+        content = TefClsitConfig.patchIniSectionValue(
+            content = content,
+            section = "Geral",
+            key = "TransacoesAdicionaisHabilitadas",
+            value = TefClsitConfig.mergeTransacoesAdicionaisHabilitadas(
+                TefClsitConfig.readIniSectionValue(content, "Geral", "TransacoesAdicionaisHabilitadas"),
+            ),
+        )
+        content = TefClsitConfig.patchIniSectionValue(
+            content = content,
+            section = "CliSiTef",
+            key = "TraceRotativo",
+            value = TefClsitConfig.readIniSectionValue(content, "CliSiTef", "TraceRotativo")
+                .ifBlank { "10" },
+        )
+        content = TefClsitConfig.patchIniSectionValue(
+            content = content,
+            section = "CliSiTefI",
+            key = "TraceRotativo",
+            value = TefClsitConfig.readIniSectionValue(content, "CliSiTefI", "TraceRotativo")
+                .ifBlank { "10" },
+        )
+        clsitFile.writeText(content)
     }
 
     private fun copyAssetIfNeeded(context: Context, assetName: String, targetFileName: String) {

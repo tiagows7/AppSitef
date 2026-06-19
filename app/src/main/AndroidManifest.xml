@@ -30,10 +30,16 @@
             android:name=".AdministrativeTefActivity"
             android:exported="false" />
         <activity
+            android:name=".FinalizeTerminalActivity"
+            android:exported="false" />
+        <activity
             android:name=".TefTransactionActivity"
             android:exported="false" />
         <activity
             android:name=".SalesActivity"
+            android:exported="false" />
+        <activity
+            android:name=".sales.ui.CustomerCnpjDataActivity"
             android:exported="false" />
         <activity
             android:name=".SplashActivity"

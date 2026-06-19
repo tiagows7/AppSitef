@@ -9,3 +9,4 @@ local.properties
 **/build/
 *.apk
 *.aab
+app/keystore/

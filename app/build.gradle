@@ -9,7 +9,7 @@ android {
 
     signingConfigs {
         gertec {
-            storeFile file("G:/programas/MOBILE/GPOS/MSITEF/GPOS720/Chaves/Development_GertecDeveloper_CustomerAPP.keystore")
+            storeFile file("keystore/Development_GertecDeveloper_CustomerAPP.keystore")
             storePassword "Development@GertecDeveloper2018"
             keyAlias "developmentgertecdeveloper_customerapp"
             keyPassword "Development@GertecDeveloper2018"

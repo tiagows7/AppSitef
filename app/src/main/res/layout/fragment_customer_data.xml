@@ -62,21 +62,36 @@
                     android:textStyle="bold"
                     android:visibility="gone" />
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/tilCpfCnpj"
-                    style="@style/Widget.AppSiTefSmartPos.TextInput"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:hint="CPF/CNPJ">
+                    android:orientation="horizontal">
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/etCpfCnpj"
-                        android:layout_width="match_parent"
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilCpfCnpj"
+                        style="@style/Widget.AppSiTefSmartPos.TextInput"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:importantForAutofill="no"
-                        android:inputType="number" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:layout_weight="1"
+                        android:hint="CPF/CNPJ">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etCpfCnpj"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:importantForAutofill="no"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnConsultarCnpj"
+                        style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:text="@string/customer_consult_cnpj_button" />
+                </LinearLayout>
 
                 <com.google.android.material.textfield.TextInputLayout
                     style="@style/Widget.AppSiTefSmartPos.TextInput"

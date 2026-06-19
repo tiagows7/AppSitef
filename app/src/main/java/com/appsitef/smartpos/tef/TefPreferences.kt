@@ -113,6 +113,17 @@ object TefPreferences {
         return prefs(context).getString(KEY_TEF_TRANSACOES, "") ?: ""
     }
 
+    /**
+     * Lista usada no CLSIT e no ParamAdic da transação (Delphi `transacoesHabilitadas`).
+     * Garante códigos de menu admin (teste 3203, terminal 130, trace 3627, etc.) no menu 110.
+     */
+    fun resolveTransacoesHabilitadas(context: Context): String {
+        loadModuloIniIfExists(context)
+        val fromServer = TefClsitConfig.normalizeTransacoesHabilitadas(getTefTransacoesHabilitadas(context))
+        val base = fromServer.ifBlank { TefClsitConfig.DEFAULT_TRANSACOES_HABILITADAS }
+        return TefClsitConfig.ensureMandatoryAdminTransacoes(base)
+    }
+
     fun getTefComExterna(context: Context): String {
         loadModuloIniIfExists(context)
         return prefs(context).getString(KEY_TEF_COM_EXTERNA, "0") ?: "0"
@@ -122,8 +133,8 @@ object TefPreferences {
         loadModuloIniIfExists(context)
         return TefClsitConfig.buildConfigureAdditionalParams(
             tipoComunicacaoExterna = getTefComExterna(context),
+            cnpjEstabelecimento = prefs(context).getString(KEY_TEF_CNPJ, "") ?: "",
             cnpjAutomacao = prefs(context).getString(KEY_TEF_CNPJ_AUTOMACAO, "") ?: "",
-            cnpjFacilitador = prefs(context).getString(KEY_TEF_CNPJ, "") ?: ""
         )
     }
     fun getOperator(context: Context): String = prefs(context).getString(KEY_OPERATOR, "0001") ?: "0001"
@@ -202,8 +213,8 @@ object TefPreferences {
                 KEY_ADDITIONAL_PARAMS,
                 TefClsitConfig.buildConfigureAdditionalParams(
                     tipoComunicacaoExterna = terminal.tefComExterna,
+                    cnpjEstabelecimento = terminal.tefCnpj,
                     cnpjAutomacao = terminal.tefCnpjAutomacao,
-                    cnpjFacilitador = terminal.tefCnpj
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, terminal.tefObrigadoOperador)
@@ -311,8 +322,8 @@ object TefPreferences {
                 KEY_ADDITIONAL_PARAMS,
                 TefClsitConfig.buildConfigureAdditionalParams(
                     tipoComunicacaoExterna = tef["COMEXTERNA"]?.ifBlank { "0" } ?: "0",
+                    cnpjEstabelecimento = tef["CNPJ"].orEmpty(),
                     cnpjAutomacao = tef["CNPJAUTOMACAO"].orEmpty(),
-                    cnpjFacilitador = tef["CNPJ"].orEmpty()
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, tef["OBRIGADOOPERADOR"].orEmpty())

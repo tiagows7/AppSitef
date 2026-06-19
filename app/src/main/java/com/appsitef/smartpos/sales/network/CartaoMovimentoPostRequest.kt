@@ -1,6 +1,7 @@
 package com.appsitef.smartpos.sales.network
 
 import com.appsitef.smartpos.tef.TefAmountFormatter
+import com.appsitef.smartpos.tef.TefTransactionFieldParser
 import com.appsitef.smartpos.tef.TefTransactionResult
 import java.util.Locale
 
@@ -122,7 +123,7 @@ data class CartaoMovimentoPostRequest(
                 dataTransacao.isNotBlank() -> dataTransacao
                 else -> taxInvoiceDate
             }
-            return DatasnapPathEncoder.normalizeDataSitef(raw)
+            return TefTransactionFieldParser.ensureDataSitefDotted(raw)
         }
 
         private fun formatPreDatado(sitefPreDatadoRaw: String, dataPreDatado: String): String {

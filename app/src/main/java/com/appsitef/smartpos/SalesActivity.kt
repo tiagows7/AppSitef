@@ -17,13 +17,14 @@ import com.appsitef.smartpos.sales.AbastecimentoIntentSerializer
 import com.appsitef.smartpos.sales.SaleContextIntentSerializer
 import com.appsitef.smartpos.sales.SalesPagerAdapter
 import com.appsitef.smartpos.sales.SalesViewModel
-import com.appsitef.smartpos.sales.model.SaleContext
+import com.appsitef.smartpos.tef.TefTerminalTotalsStore
 import com.appsitef.smartpos.tef.TefTransactionResult
 import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
 import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
 import com.appsitef.smartpos.tef.CliSiTefIHolder
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
 import com.appsitef.smartpos.tef.TefPreferences
+import com.appsitef.smartpos.ui.MoneyInputMask
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.tabs.TabLayout
@@ -52,6 +53,7 @@ class SalesActivity : AppCompatActivity() {
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
         val tefResultJson = result.data?.getStringExtra(TefTransactionActivity.EXTRA_TEF_RESULT_JSON)
         salesViewModel.setLastTefTransactionResult(TefTransactionResult.fromJson(tefResultJson))
+        recordApprovedSaleInTerminalTotals()
         salesViewModel.clearTransactionData()
         goToTab(0)
         Toast.makeText(this, R.string.sale_completed_reset, Toast.LENGTH_LONG).show()
@@ -109,12 +111,7 @@ class SalesActivity : AppCompatActivity() {
                 functionId = functionId,
                 saleAbastecimentosJson = AbastecimentoIntentSerializer.toJson(saleAbastecimentos),
                 saleContextJson = SaleContextIntentSerializer.toJson(
-                    SaleContext(
-                        customerCode = salesViewModel.customerCode.value.orEmpty(),
-                        cpfCnpj = salesViewModel.cpfCnpj.value.orEmpty(),
-                        vehicle = salesViewModel.vehicle.value.orEmpty(),
-                        km = salesViewModel.km.value.orEmpty(),
-                    )
+                    salesViewModel.buildSaleContext(),
                 ),
             )
         )
@@ -196,6 +193,15 @@ class SalesActivity : AppCompatActivity() {
 
     private fun formatMoney(value: Double): String {
         return String.format(Locale("pt", "BR"), "%.2f", value)
+    }
+
+    private fun recordApprovedSaleInTerminalTotals() {
+        val operator = salesViewModel.saleOperator.value.orEmpty()
+        var amount = MoneyInputMask.parseToDouble(salesViewModel.saleValue.value.orEmpty())
+        if (amount <= 0.0) {
+            amount = salesViewModel.getSaleNetTotalAbatot()
+        }
+        TefTerminalTotalsStore.recordApprovedSale(this, amount, operator)
     }
 
     private fun confirmCancelSale() {

@@ -20,7 +20,13 @@ data class TefTransactionResult(
     var tipoParc: String = "",
     var nsuSitef: String = "",
     var nsuHost: String = "",
+    /** NSU da venda original (campo 620/1321) — cancelamento administrativo. */
+    var nsuTransacaoOriginal: String = "",
+    /** Valor cancelado (campo 146) — Delphi `TIPO_CAMPOS`. */
+    var valorCancelamento: String = "",
     var codAutorizacao: String = "",
+    /** Chave NF-e retornada pelo servidor em `cartao_movimento` (TLibrary.CHAVENOTA). */
+    var chaveNota: String = "",
 ) {
     fun toJson(): String {
         return JSONObject()
@@ -36,7 +42,10 @@ data class TefTransactionResult(
             .put("tipoParc", tipoParc)
             .put("nsuSitef", nsuSitef)
             .put("nsuHost", nsuHost)
+            .put("nsuTransacaoOriginal", nsuTransacaoOriginal)
+            .put("valorCancelamento", valorCancelamento)
             .put("codAutorizacao", codAutorizacao)
+            .put("chaveNota", chaveNota)
             .toString()
     }
 
@@ -58,7 +67,10 @@ data class TefTransactionResult(
                     tipoParc = json.optString("tipoParc", ""),
                     nsuSitef = json.optString("nsuSitef", ""),
                     nsuHost = json.optString("nsuHost", ""),
+                    nsuTransacaoOriginal = json.optString("nsuTransacaoOriginal", ""),
+                    valorCancelamento = json.optString("valorCancelamento", ""),
                     codAutorizacao = json.optString("codAutorizacao", ""),
+                    chaveNota = json.optString("chaveNota", ""),
                 )
             }.getOrNull()
         }

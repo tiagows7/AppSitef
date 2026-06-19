@@ -1,9 +1,8 @@
 package com.appsitef.smartpos.sales.model
 
-/** Dados da venda usados no POST `cartao_movimento` após TEF aprovado. */
-data class SaleContext(
-    val customerCode: String = "",
-    val cpfCnpj: String = "",
+/** Dados cadastrais do cliente (consulta CNPJ + edição manual). */
+data class ClienteCnpjData(
+    val cnpj: String = "",
     val nome: String = "",
     val endereco: String = "",
     val numeroEndereco: String = "",
@@ -11,6 +10,4 @@ data class SaleContext(
     val cidade: String = "",
     val inscricaoEstadual: String = "",
     val uf: String = "",
-    val vehicle: String = "",
-    val km: String = "",
 )

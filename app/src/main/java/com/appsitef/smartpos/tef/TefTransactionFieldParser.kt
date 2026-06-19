@@ -1,5 +1,6 @@
 package com.appsitef.smartpos.tef
 
+import com.appsitef.smartpos.sales.network.DatasnapPathEncoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -46,6 +47,78 @@ object TefTransactionFieldParser {
         if (digits.length < 8) return ""
         return formatMmDdYyyyWithSlashes(digits.substring(0, 8))
     }
+
+    /**
+     * Cancelamento administrativo — Delphi `TIPO_CAMPOS` campo 105:
+     * `copy(7,2) + '.' + copy(5,2) + '.' + copy(1,4)` sobre `YYYYMMDD…` (índice 1-based).
+     */
+    fun formatDataSitefCancelamento(raw: String): String {
+        val digits = raw.trim().filter { it.isDigit() }
+        if (digits.length < 8) return ""
+
+        val year = digits.substring(0, 4).toIntOrNull() ?: 0
+        if (year in 1900..2100) {
+            return formatDelphiYyyyMmDdDots(digits.substring(0, 8))
+        }
+
+        val (data, _) = parseDataHoraSitef(digits)
+        return data.replace('/', '.')
+    }
+
+    /**
+     * Garante `DD.MM.AAAA` antes de enviar ao servidor (JSON ou URL).
+     * Nunca devolve 8 dígitos contínuos sem separador.
+     */
+    fun ensureDataSitefDotted(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return ""
+
+        if (DOTTED_DATE_REGEX.matches(trimmed)) return trimmed
+
+        val fromCancelamento = formatDataSitefCancelamento(trimmed)
+        if (fromCancelamento.isNotBlank()) return fromCancelamento
+
+        val normalized = DatasnapPathEncoder.normalizeDataSitef(trimmed)
+        if (normalized.contains('.')) return normalized
+
+        val digits = trimmed.filter { it.isDigit() }
+        if (digits.length >= 8) {
+            val forced = DatasnapPathEncoder.normalizeDataSitef(digits.substring(0, 8))
+            if (forced.contains('.')) return forced
+
+            val yearAtStart = digits.substring(0, 4).toIntOrNull() ?: 0
+            return if (yearAtStart in 1900..2100) {
+                formatDelphiYyyyMmDdDots(digits.substring(0, 8))
+            } else {
+                "${digits.substring(0, 2)}.${digits.substring(2, 4)}.${digits.substring(4, 8)}"
+            }
+        }
+
+        return normalized
+    }
+
+    private fun formatDelphiYyyyMmDdDots(yyyymmdd: String): String {
+        if (yyyymmdd.length != 8) return ""
+        return "${yyyymmdd.substring(6, 8)}.${yyyymmdd.substring(4, 6)}.${yyyymmdd.substring(0, 4)}"
+    }
+
+    /**
+     * `udmpri.cancela_cartao` — `DATA` sem separador (`StringReplace(sDATA,'/','')` → `DDMMAAAA`).
+     */
+    fun formatDataCancelamentoServidor(raw: String): String {
+        val digits = raw.trim().filter { it.isDigit() }
+        if (digits.length < 8) return digits
+
+        val dateDigits = digits.substring(0, 8)
+        val yearAtStart = dateDigits.substring(0, 4).toIntOrNull() ?: 0
+        return if (yearAtStart in 1900..2100) {
+            "${dateDigits.substring(6, 8)}${dateDigits.substring(4, 6)}${dateDigits.substring(0, 4)}"
+        } else {
+            dateDigits
+        }
+    }
+
+    private val DOTTED_DATE_REGEX = Regex("""^\d{2}\.\d{2}\.\d{4}$""")
 
     /** `cartao_movimento` — data SiTef (`DDMMAAAA` ou `DDMMAAAAHHMMSS`) → `DD.MM.AAAA`. */
     fun formatSitefDateForCartaoMovimento(raw: String): String {

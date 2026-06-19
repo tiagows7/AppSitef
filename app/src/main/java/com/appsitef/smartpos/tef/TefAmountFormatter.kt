@@ -16,6 +16,9 @@ object TefAmountFormatter {
         return cents.toString()
     }
 
+    /** Valor digitado com máscara (`10,50`) → centavos SiTef (`1050`), como Delphi `GetValorTransacao`. */
+    fun toSitefCurrencyDigits(maskedValue: String): String = toCliSiTefAmount(maskedValue)
+
     /** Delphi `VALORVENDA` — decimal com vírgula (ex.: `10,50`). */
     fun toCartaoMovimentoValor(raw: String): String {
         val normalized = raw.trim()

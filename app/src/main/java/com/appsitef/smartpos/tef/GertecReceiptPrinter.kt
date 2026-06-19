@@ -6,10 +6,12 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.util.Log
 import br.com.gertec.gedi.GEDI
+import br.com.gertec.gedi.enums.GEDI_PRNTR_e_BarCodeType
 import br.com.gertec.gedi.enums.GEDI_PRNTR_e_Status
 import br.com.gertec.gedi.enums.GEDI_e_Ret
 import br.com.gertec.gedi.exceptions.GediException
 import br.com.gertec.gedi.interfaces.IPRNTR
+import br.com.gertec.gedi.structs.GEDI_PRNTR_st_BarCodeConfig
 import br.com.gertec.gedi.structs.GEDI_PRNTR_st_StringConfig
 
 /**
@@ -20,16 +22,94 @@ import br.com.gertec.gedi.structs.GEDI_PRNTR_st_StringConfig
 object GertecReceiptPrinter {
 
     private const val TAG = "GertecReceiptPrinter"
-    private const val TEXT_SIZE = 20f
-    private const val LINE_SPACE = 10
-    private const val FEED_BLANK_LINES = 150
-    private const val MAX_LINE_CHARS = 42
+    /** Cupom fiscal (NF-e/NFC-e) e comprovantes TEF. */
+    private const val FISCAL_TEXT_SIZE = 16f
+    private const val FISCAL_LINE_SPACE = 8
+    private const val FISCAL_MAX_LINE_CHARS = 50
+    private const val TEF_RECEIPT_FEED_BLANK_LINES = 145
+    private const val NFE_CUPOM_FEED_BLANK_LINES = 142
     private const val LINES_PER_BATCH = 35
     private const val PRINTER_READY_MAX_ATTEMPTS = 12
     private const val PRINTER_READY_DELAY_MS = 500L
     private const val OUTPUT_MAX_ATTEMPTS = 4
     private const val OUTPUT_RETRY_DELAY_MS = 800L
     private const val PRE_PRINT_DELAY_MS = 400L
+    private const val QR_CODE_HEIGHT = 200
+    private const val QR_CODE_WIDTH = 280
+    private const val QR_CODE_WHITE_SPACE = 2
+    private const val FISCAL_QR_CODE_HEIGHT = 170
+    private const val FISCAL_QR_CODE_WIDTH = 240
+    private const val CODE_128_HEIGHT = 80
+    private const val CODE_128_WIDTH = 380
+    private const val CODE_128_WHITE_SPACE = 2
+
+    @Synchronized
+    fun printNfeCupom(context: Context, receipt: NfeThermalReceipt) {
+        if (receipt.text.isBlank() &&
+            receipt.textAfterBarCode.isNullOrBlank() &&
+            receipt.qrCode.isNullOrBlank() &&
+            receipt.accessKeyBarCode.isNullOrBlank()
+        ) {
+            Log.w(TAG, "printNfeCupom ignorado — cupom vazio")
+            return
+        }
+
+        val host = if (context is Activity) context else context.applicationContext
+        GertecPinpadBootstrap.ensureGediReady(host)
+        val printer = GEDI.getInstance(host).prntr
+
+        Thread.sleep(PRE_PRINT_DELAY_MS)
+        waitForPrinterReady(printer)
+
+        val isNfce = !receipt.qrCode.isNullOrBlank()
+
+        var initialized = false
+        try {
+            printer.Init()
+            initialized = true
+            val config = buildStringConfig(FISCAL_TEXT_SIZE, FISCAL_LINE_SPACE)
+            var lineCount = drawCupomText(printer, config, receipt.text, FISCAL_MAX_LINE_CHARS)
+            receipt.accessKeyBarCode?.let { payload ->
+                Log.d(TAG, "printNfeCupom CODE_128 chave len=${payload.length}")
+                printer.DrawBarCode(buildCode128Config(), payload)
+            }
+            receipt.textAfterBarCode?.let { after ->
+                lineCount += drawCupomText(printer, config, after, FISCAL_MAX_LINE_CHARS)
+            }
+            receipt.qrCode?.let { payload ->
+                Log.d(TAG, "printNfeCupom QR len=${payload.length} nfce=$isNfce")
+                printer.DrawBarCode(buildQrCodeConfig(compact = true), payload)
+            }
+            printer.DrawBlankLine(NFE_CUPOM_FEED_BLANK_LINES)
+            outputWithRetry(printer)
+            Log.d(
+                TAG,
+                "printNfeCupom ok lines=$lineCount " +
+                    "barcode=${!receipt.accessKeyBarCode.isNullOrBlank()} " +
+                    "qr=${!receipt.qrCode.isNullOrBlank()}",
+            )
+        } catch (error: Throwable) {
+            Log.e(TAG, "printNfeCupom", error)
+            flushPrinter(printer, initialized)
+            throw mapPrintError(error)
+        }
+    }
+
+    private fun drawCupomText(
+        printer: IPRNTR,
+        config: GEDI_PRNTR_st_StringConfig,
+        text: String,
+        maxLineChars: Int = FISCAL_MAX_LINE_CHARS,
+    ): Int {
+        if (text.isBlank()) return 0
+        val lines = TefReceiptFormatter.formatCupom(text)
+            .split("\n")
+            .flatMap { expandPrintableLines(it, maxLineChars) }
+        lines.forEach { line ->
+            printer.DrawStringExt(config, line)
+        }
+        return lines.size
+    }
 
     @Synchronized
     fun printReceipt(context: Context, text: String) {
@@ -48,27 +128,32 @@ object GertecReceiptPrinter {
         val formatted = TefReceiptFormatter.formatCupom(text)
         val lines = formatted
             .split("\n")
-            .map { normalizePrintableLine(it) }
+            .flatMap { expandPrintableLines(it, FISCAL_MAX_LINE_CHARS) }
 
         Log.d(TAG, "printReceipt lines=${lines.size}")
+        val config = buildStringConfig(FISCAL_TEXT_SIZE, FISCAL_LINE_SPACE)
         val batches = lines.chunked(LINES_PER_BATCH)
         batches.forEachIndexed { index, batch ->
-            printBatch(printer, batch, feedAfter = index == batches.lastIndex)
+            printBatch(printer, config, batch, feedAfter = index == batches.lastIndex)
         }
         Log.d(TAG, "printReceipt ok batches=${batches.size}")
     }
 
-    private fun printBatch(printer: IPRNTR, lines: List<String>, feedAfter: Boolean) {
+    private fun printBatch(
+        printer: IPRNTR,
+        config: GEDI_PRNTR_st_StringConfig,
+        lines: List<String>,
+        feedAfter: Boolean,
+    ) {
         var initialized = false
         try {
             printer.Init()
             initialized = true
-            val config = buildStringConfig()
             lines.forEach { line ->
                 printer.DrawStringExt(config, line)
             }
             if (feedAfter) {
-                printer.DrawBlankLine(FEED_BLANK_LINES)
+                printer.DrawBlankLine(TEF_RECEIPT_FEED_BLANK_LINES)
             }
             outputWithRetry(printer)
         } catch (error: Throwable) {
@@ -161,19 +246,54 @@ object GertecReceiptPrinter {
         )
     }
 
-    private fun normalizePrintableLine(raw: String): String {
+    private fun expandPrintableLines(raw: String, maxLineChars: Int = FISCAL_MAX_LINE_CHARS): List<String> {
         val adjusted = TefReceiptFormatter.adjustLine(raw).ifBlank { " " }
-        if (adjusted.length <= MAX_LINE_CHARS) return adjusted
-        return adjusted.take(MAX_LINE_CHARS)
+        if (adjusted.length <= maxLineChars) return listOf(adjusted)
+
+        val lines = mutableListOf<String>()
+        var remaining = adjusted
+        while (remaining.isNotEmpty()) {
+            if (remaining.length <= maxLineChars) {
+                lines += remaining
+                break
+            }
+            var breakAt = remaining.lastIndexOf(',', maxLineChars.coerceAtMost(remaining.length - 1))
+            if (breakAt <= 0) breakAt = remaining.lastIndexOf(' ', maxLineChars)
+            if (breakAt <= 0) breakAt = maxLineChars
+            lines += remaining.substring(0, breakAt).trimEnd(',', ' ')
+            remaining = remaining.substring(breakAt).trimStart(',', ' ')
+        }
+        return lines
     }
 
-    private fun buildStringConfig(): GEDI_PRNTR_st_StringConfig {
+    private fun buildStringConfig(
+        textSize: Float = FISCAL_TEXT_SIZE,
+        lineSpace: Int = FISCAL_LINE_SPACE,
+    ): GEDI_PRNTR_st_StringConfig {
         val paint = Paint().apply {
-            textSize = TEXT_SIZE
+            this.textSize = textSize
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             textAlign = Paint.Align.CENTER
         }
-        return GEDI_PRNTR_st_StringConfig(paint, LINE_SPACE, 0)
+        return GEDI_PRNTR_st_StringConfig(paint, lineSpace, 0)
+    }
+
+    private fun buildQrCodeConfig(compact: Boolean = false): GEDI_PRNTR_st_BarCodeConfig {
+        return GEDI_PRNTR_st_BarCodeConfig(
+            GEDI_PRNTR_e_BarCodeType.QR_CODE,
+            if (compact) FISCAL_QR_CODE_HEIGHT else QR_CODE_HEIGHT,
+            if (compact) FISCAL_QR_CODE_WIDTH else QR_CODE_WIDTH,
+            QR_CODE_WHITE_SPACE,
+        )
+    }
+
+    private fun buildCode128Config(): GEDI_PRNTR_st_BarCodeConfig {
+        return GEDI_PRNTR_st_BarCodeConfig(
+            GEDI_PRNTR_e_BarCodeType.CODE_128,
+            CODE_128_HEIGHT,
+            CODE_128_WIDTH,
+            CODE_128_WHITE_SPACE,
+        )
     }
 
     fun describePrinterStatus(status: GEDI_PRNTR_e_Status): String? = when (status) {

@@ -4,6 +4,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import com.appsitef.smartpos.sales.model.Abastecimento
+import com.appsitef.smartpos.sales.model.ClienteCnpjData
 import com.appsitef.smartpos.sales.model.CupomPromo
 import com.appsitef.smartpos.sales.model.CupomValidationResult
 import com.appsitef.smartpos.tef.TefTransactionResult
@@ -29,6 +30,10 @@ class SalesViewModel : ViewModel() {
 
     private val _cpfCnpj = MutableLiveData("")
     val cpfCnpj: LiveData<String> = _cpfCnpj
+
+    /** Dados cadastrais da consulta CNPJ — mantidos até finalizar a venda TEF. */
+    private val _clienteCnpjData = MutableLiveData<ClienteCnpjData?>(null)
+    val clienteCnpjData: LiveData<ClienteCnpjData?> = _clienteCnpjData
 
     private val _vehicle = MutableLiveData("")
     val vehicle: LiveData<String> = _vehicle
@@ -117,6 +122,7 @@ class SalesViewModel : ViewModel() {
         _customerCode.value = ""
         _customerName.value = ""
         _cpfCnpj.value = ""
+        _clienteCnpjData.value = null
         _vehicle.value = ""
         _km.value = ""
         _promoCode.value = ""
@@ -142,11 +148,36 @@ class SalesViewModel : ViewModel() {
         promoCode: String
     ) {
         _customerCode.value = customerCode
-        _customerName.value = customerName
+        if (_clienteCnpjData.value == null) {
+            _customerName.value = customerName
+        }
         _cpfCnpj.value = cpfCnpj
         _vehicle.value = vehicle
         _km.value = km
         _promoCode.value = promoCode
+    }
+
+    fun applyClienteCnpjData(data: ClienteCnpjData) {
+        _clienteCnpjData.value = data
+        _cpfCnpj.value = data.cnpj
+        _customerName.value = data.nome
+    }
+
+    fun buildSaleContext(): com.appsitef.smartpos.sales.model.SaleContext {
+        val cnpjData = _clienteCnpjData.value
+        return com.appsitef.smartpos.sales.model.SaleContext(
+            customerCode = _customerCode.value.orEmpty(),
+            cpfCnpj = _cpfCnpj.value.orEmpty(),
+            nome = cnpjData?.nome ?: _customerName.value.orEmpty(),
+            endereco = cnpjData?.endereco.orEmpty(),
+            numeroEndereco = cnpjData?.numeroEndereco.orEmpty(),
+            bairro = cnpjData?.bairro.orEmpty(),
+            cidade = cnpjData?.cidade.orEmpty(),
+            inscricaoEstadual = cnpjData?.inscricaoEstadual.orEmpty(),
+            uf = cnpjData?.uf.orEmpty(),
+            vehicle = _vehicle.value.orEmpty(),
+            km = _km.value.orEmpty(),
+        )
     }
 
     fun applyCustomerSearchResult(codigo: String, nome: String, cpfCnpj: String) {
@@ -154,6 +185,7 @@ class SalesViewModel : ViewModel() {
         _customerCode.value = codigo.trim()
         _customerName.value = nome
         _cpfCnpj.value = cpfCnpj
+        _clienteCnpjData.value = null
     }
 
     fun onCustomerCodeEdited(code: String) {
@@ -171,6 +203,7 @@ class SalesViewModel : ViewModel() {
         }
         _customerName.value = ""
         _cpfCnpj.value = ""
+        _clienteCnpjData.value = null
     }
 
     fun setSaleData(operator: String, value: String) {
@@ -225,6 +258,11 @@ class SalesViewModel : ViewModel() {
         if (normalized.isEmpty() || (validatedCode != null && validatedCode != normalized)) {
             clearCupomDiscounts()
         }
+    }
+
+    fun clearClienteCnpjData() {
+        _clienteCnpjData.value = null
+        _customerName.value = ""
     }
 
     fun isPromoCodeValidatedForAdvance(fieldCode: String): Boolean {

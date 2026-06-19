@@ -20,7 +20,20 @@ object TefReceiptFormatter {
         for ((from, to) in replacements) {
             result = result.replace(from, to, ignoreCase = true)
         }
-        return result
+        return trimTrailingBlankLines(result, TRAILING_BLANK_LINES_TRIM)
+    }
+
+    private const val TRAILING_BLANK_LINES_TRIM = 3
+
+    fun trimTrailingBlankLines(text: String, maxTrim: Int = TRAILING_BLANK_LINES_TRIM): String {
+        if (maxTrim <= 0) return text
+        val lines = text.split("\n").toMutableList()
+        var trimmed = 0
+        while (lines.isNotEmpty() && lines.last().isBlank() && trimmed < maxTrim) {
+            lines.removeAt(lines.lastIndex)
+            trimmed++
+        }
+        return lines.joinToString("\n")
     }
 
     fun adjustLine(line: String): String {

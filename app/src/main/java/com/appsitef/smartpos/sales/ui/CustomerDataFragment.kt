@@ -1,19 +1,23 @@
 package com.appsitef.smartpos.sales.ui
 
+import android.app.Activity
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import com.appsitef.smartpos.R
 import com.appsitef.smartpos.SalesActivity
+import com.appsitef.smartpos.sales.ClienteCnpjDataSerializer
 import com.appsitef.smartpos.sales.SalesViewModel
 import com.appsitef.smartpos.sales.network.ClienteRemoteRepository
+import com.appsitef.smartpos.sales.network.CnpjPublicRepository
 import com.appsitef.smartpos.sales.network.CupomRemoteRepository
 import com.appsitef.smartpos.tef.TefPreferences
 import com.appsitef.smartpos.ui.DocumentInputMask
@@ -33,6 +37,7 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
     private val salesViewModel: SalesViewModel by activityViewModels()
     private val clienteRepository by lazy { ClienteRemoteRepository(requireContext()) }
     private val cupomRepository by lazy { CupomRemoteRepository() }
+    private val cnpjRepository by lazy { CnpjPublicRepository() }
 
     private var etCodigoCliente: TextInputEditText? = null
     private var tvNomeCliente: TextView? = null
@@ -45,6 +50,34 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
     private var syncingCustomerCode = false
     private var syncingPromoCode = false
     private var etCodigoAppPromo: TextInputEditText? = null
+    private var lastConsultedCnpj: String? = null
+
+    private val customerCnpjDataLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode != Activity.RESULT_OK) return@registerForActivityResult
+        val json = result.data?.getStringExtra(CustomerCnpjDataActivity.RESULT_DATA_JSON) ?: return@registerForActivityResult
+        val data = ClienteCnpjDataSerializer.fromJson(json) ?: return@registerForActivityResult
+
+        suppressCustomerBinding = true
+        salesViewModel.applyClienteCnpjData(data)
+        tvNomeCliente?.text = data.nome
+        tvNomeCliente?.isVisible = data.nome.isNotBlank()
+        etCpfCnpj?.let { DocumentInputMask.setDigits(it, data.cnpj) }
+        lastConsultedCnpj = data.cnpj
+        suppressCustomerBinding = false
+
+        Toast.makeText(
+            requireContext(),
+            getString(
+                R.string.customer_cnpj_lookup_success,
+                data.nome,
+                data.inscricaoEstadual.ifBlank { "—" },
+                data.uf.ifBlank { "—" },
+            ),
+            Toast.LENGTH_LONG,
+        ).show()
+    }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -54,6 +87,7 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
         val btnPesquisarCliente = view.findViewById<MaterialButton>(R.id.btnPesquisarCliente)
         tilCpfCnpj = view.findViewById(R.id.tilCpfCnpj)
         etCpfCnpj = view.findViewById(R.id.etCpfCnpj)
+        val btnConsultarCnpj = view.findViewById<MaterialButton>(R.id.btnConsultarCnpj)
         val etVeiculo = view.findViewById<TextInputEditText>(R.id.etVeiculo)
         val etKm = view.findViewById<TextInputEditText>(R.id.etKm)
         etCodigoAppPromo = view.findViewById(R.id.etCodigoAppPromo)
@@ -90,6 +124,22 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
             }
         }
 
+        btnConsultarCnpj.setOnClickListener {
+            consultarCnpjWeb(btnConsultarCnpj)
+        }
+
+        etCpfCnpj!!.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                if (suppressCustomerBinding) return
+                val digits = DocumentInputMask.getDigits(etCpfCnpj!!)
+                val editingCnpj = digits.length > 11 || lastConsultedCnpj != null
+                if (!editingCnpj) return
+                clearCnpjDerivedFields()
+            }
+        })
+
         btnPesquisarCliente.setOnClickListener {
             KeyboardUtils.hide(this)
             val codigo = currentCustomerCode()
@@ -122,6 +172,7 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
                         nome = cliente.nome,
                         cpfCnpj = cliente.cpfCnpj
                     )
+                    lastConsultedCnpj = null
                     tvNomeCliente?.text = cliente.nome
                     tvNomeCliente?.isVisible = cliente.nome.isNotBlank()
                     etCpfCnpj?.let { DocumentInputMask.setDigits(it, cliente.cpfCnpj) }
@@ -240,9 +291,10 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
                 return@setOnClickListener
             }
 
+            val cnpjData = salesViewModel.clienteCnpjData.value
             salesViewModel.setCustomerData(
                 customerCode = currentCustomerCode(),
-                customerName = tvNomeCliente?.text?.toString()?.trim().orEmpty(),
+                customerName = cnpjData?.nome ?: tvNomeCliente?.text?.toString()?.trim().orEmpty(),
                 cpfCnpj = cpfCnpj,
                 vehicle = etVeiculo.text.toString().trim(),
                 km = etKm.text.toString().trim(),
@@ -277,6 +329,10 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
             if (DocumentInputMask.getDigits(field) != cpfCnpj) {
                 DocumentInputMask.setDigits(field, cpfCnpj)
             }
+        }
+        salesViewModel.clienteCnpjData.observe(viewLifecycleOwner) { data ->
+            if (suppressCustomerBinding) return@observe
+            lastConsultedCnpj = data?.cnpj
         }
         salesViewModel.vehicle.observe(viewLifecycleOwner) { etVeiculo.setText(it) }
         salesViewModel.km.observe(viewLifecycleOwner) { etKm.setText(it) }
@@ -348,6 +404,7 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
 
         suppressCustomerBinding = true
         loadedSearchCode = null
+        lastConsultedCnpj = null
         salesViewModel.clearCustomerSearchResult(keepCode = keepCode)
 
         tvNomeCliente?.text = ""
@@ -362,5 +419,51 @@ class CustomerDataFragment : Fragment(R.layout.fragment_customer_data) {
         }
 
         view?.post { suppressCustomerBinding = false }
+    }
+
+    private fun consultarCnpjWeb(triggerButton: MaterialButton) {
+        KeyboardUtils.hide(this)
+        val cpfCnpjField = etCpfCnpj ?: return
+        val cpfCnpj = DocumentInputMask.getDigits(cpfCnpjField)
+        tilCpfCnpj?.error = null
+
+        if (cpfCnpj.length != 14 || !DocumentValidator.isValidCnpj(cpfCnpj)) {
+            tilCpfCnpj?.error = getString(R.string.error_cnpj_required_for_lookup)
+            return
+        }
+
+        lifecycleScope.launch {
+            triggerButton.isEnabled = false
+            val waitDialog = WaitDialog.show(
+                requireContext(),
+                R.string.wait_message_searching_cnpj,
+            )
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    cnpjRepository.consultarCnpj(cpfCnpj)
+                }
+                if (DocumentInputMask.getDigits(cpfCnpjField) != cpfCnpj) return@launch
+
+                customerCnpjDataLauncher.launch(
+                    CustomerCnpjDataActivity.intent(requireContext(), result),
+                )
+            } catch (error: Exception) {
+                Toast.makeText(
+                    requireContext(),
+                    error.message ?: "Erro ao consultar CNPJ.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                waitDialog.dismiss()
+                triggerButton.isEnabled = true
+            }
+        }
+    }
+
+    private fun clearCnpjDerivedFields() {
+        lastConsultedCnpj = null
+        tvNomeCliente?.text = ""
+        tvNomeCliente?.isVisible = false
+        salesViewModel.clearClienteCnpjData()
     }
 }

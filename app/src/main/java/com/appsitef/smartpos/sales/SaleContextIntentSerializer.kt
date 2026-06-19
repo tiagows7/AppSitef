@@ -9,6 +9,13 @@ object SaleContextIntentSerializer {
         return JSONObject()
             .put("customerCode", context.customerCode)
             .put("cpfCnpj", context.cpfCnpj)
+            .put("nome", context.nome)
+            .put("endereco", context.endereco)
+            .put("numeroEndereco", context.numeroEndereco)
+            .put("bairro", context.bairro)
+            .put("cidade", context.cidade)
+            .put("inscricaoEstadual", context.inscricaoEstadual)
+            .put("uf", context.uf)
             .put("vehicle", context.vehicle)
             .put("km", context.km)
             .toString()
@@ -21,6 +28,13 @@ object SaleContextIntentSerializer {
             SaleContext(
                 customerCode = json.optString("customerCode", ""),
                 cpfCnpj = json.optString("cpfCnpj", ""),
+                nome = json.optString("nome", ""),
+                endereco = json.optString("endereco", ""),
+                numeroEndereco = json.optString("numeroEndereco", ""),
+                bairro = json.optString("bairro", ""),
+                cidade = json.optString("cidade", ""),
+                inscricaoEstadual = json.optString("inscricaoEstadual", ""),
+                uf = json.optString("uf", ""),
                 vehicle = json.optString("vehicle", ""),
                 km = json.optString("km", ""),
             )

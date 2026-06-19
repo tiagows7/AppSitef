@@ -3,14 +3,14 @@ package com.appsitef.smartpos.ui
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
-import com.google.android.material.textfield.TextInputEditText
+import android.widget.EditText
 import java.util.Locale
 
 object MoneyInputMask {
 
     private val locale = Locale("pt", "BR")
 
-    fun apply(editText: TextInputEditText) {
+    fun apply(editText: EditText) {
         editText.inputType = InputType.TYPE_CLASS_NUMBER
         val watcher = createWatcher(editText)
         editText.tag = watcher
@@ -22,15 +22,15 @@ object MoneyInputMask {
         return formatCents(cents)
     }
 
-    fun getFormattedText(editText: TextInputEditText): String {
+    fun getFormattedText(editText: EditText): String {
         return editText.text?.toString()?.trim().orEmpty()
     }
 
-    fun getNumericValue(editText: TextInputEditText): Double {
+    fun getNumericValue(editText: EditText): Double {
         return parseToDouble(getFormattedText(editText))
     }
 
-    fun setValue(editText: TextInputEditText, raw: String) {
+    fun setValue(editText: EditText, raw: String) {
         val digits = raw.filter { it.isDigit() }
         val formatted = if (digits.isEmpty()) {
             ""
@@ -46,7 +46,7 @@ object MoneyInputMask {
         return (digits.toLongOrNull() ?: 0L) / 100.0
     }
 
-    private fun createWatcher(editText: TextInputEditText): TextWatcher {
+    private fun createWatcher(editText: EditText): TextWatcher {
         return object : TextWatcher {
             private var selfChange = false
 
@@ -66,7 +66,7 @@ object MoneyInputMask {
         }
     }
 
-    private fun updateText(editText: TextInputEditText, formatted: String) {
+    private fun updateText(editText: EditText, formatted: String) {
         val watcher = editText.tag as? TextWatcher
         if (watcher != null) {
             editText.removeTextChangedListener(watcher)
