@@ -34,6 +34,15 @@
                     android:maxLength="3" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <TextView
+                android:id="@+id/tvTotalVenda"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/tilValorVenda"
                 style="@style/Widget.AppSiTefSmartPos.TextInput"

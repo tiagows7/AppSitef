@@ -10,9 +10,9 @@ object MoneyInputMask {
 
     private val locale = Locale("pt", "BR")
 
-    fun apply(editText: EditText) {
+    fun apply(editText: EditText, maxCentsProvider: (() -> Long)? = null) {
         editText.inputType = InputType.TYPE_CLASS_NUMBER
-        val watcher = createWatcher(editText)
+        val watcher = createWatcher(editText, maxCentsProvider)
         editText.tag = watcher
         editText.addTextChangedListener(watcher)
     }
@@ -22,12 +22,24 @@ object MoneyInputMask {
         return formatCents(cents)
     }
 
+    fun formatFromCents(cents: Long): String = formatCents(cents.coerceAtLeast(0L))
+
     fun getFormattedText(editText: EditText): String {
         return editText.text?.toString()?.trim().orEmpty()
     }
 
     fun getNumericValue(editText: EditText): Double {
         return parseToDouble(getFormattedText(editText))
+    }
+
+    /** Centavos a partir do texto mascarado (ex.: "150,00" → 15000). */
+    fun getCents(editText: EditText): Long {
+        return parseToCents(getFormattedText(editText))
+    }
+
+    fun parseToCents(formatted: String): Long {
+        val digits = formatted.filter { it.isDigit() }
+        return digits.toLongOrNull() ?: 0L
     }
 
     fun setValue(editText: EditText, raw: String) {
@@ -40,13 +52,24 @@ object MoneyInputMask {
         updateText(editText, formatted)
     }
 
-    fun parseToDouble(formatted: String): Double {
-        val digits = formatted.filter { it.isDigit() }
-        if (digits.isEmpty()) return 0.0
-        return (digits.toLongOrNull() ?: 0L) / 100.0
+    fun setCents(editText: EditText, cents: Long) {
+        if (cents <= 0L) {
+            updateText(editText, "")
+            return
+        }
+        updateText(editText, formatCents(cents))
     }
 
-    private fun createWatcher(editText: EditText): TextWatcher {
+    fun parseToDouble(formatted: String): Double {
+        return parseToCents(formatted) / 100.0
+    }
+
+    fun toCents(value: Double): Long = kotlin.math.round(value * 100).toLong()
+
+    private fun createWatcher(
+        editText: EditText,
+        maxCentsProvider: (() -> Long)?,
+    ): TextWatcher {
         return object : TextWatcher {
             private var selfChange = false
 
@@ -57,7 +80,12 @@ object MoneyInputMask {
             override fun afterTextChanged(s: Editable?) {
                 if (selfChange) return
                 val digits = s?.toString().orEmpty().filter { it.isDigit() }
-                val formatted = if (digits.isEmpty()) "" else formatCents(digits.toLongOrNull() ?: 0L)
+                var cents = digits.toLongOrNull() ?: 0L
+                val maxCents = maxCentsProvider?.invoke() ?: 0L
+                if (maxCents > 0L && cents > maxCents) {
+                    cents = maxCents
+                }
+                val formatted = if (digits.isEmpty()) "" else formatCents(cents)
                 selfChange = true
                 editText.setText(formatted)
                 editText.setSelection(formatted.length)

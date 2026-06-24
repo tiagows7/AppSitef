@@ -14,6 +14,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
 import com.appsitef.smartpos.sales.AbastecimentoIntentSerializer
+import com.appsitef.smartpos.sales.SaleAmountRules
 import com.appsitef.smartpos.sales.SaleContextIntentSerializer
 import com.appsitef.smartpos.sales.SalesPagerAdapter
 import com.appsitef.smartpos.sales.SalesViewModel
@@ -84,12 +85,22 @@ class SalesActivity : AppCompatActivity() {
 
         TabLayoutMediator(tabLayout, viewPager) { _, _ -> }.attach()
 
-        salesViewModel.selectedAbastecimentos.observe(this) { updateToolbarTotal() }
-        salesViewModel.saleAbastecimentos.observe(this) { updateToolbarTotal() }
+        salesViewModel.selectedAbastecimentos.observe(this) {
+            salesViewModel.refreshSaleAmountLimit()
+            updateToolbarTotal()
+        }
+        salesViewModel.saleAbastecimentos.observe(this) {
+            salesViewModel.refreshSaleAmountLimit()
+            updateToolbarTotal()
+        }
         salesViewModel.abastecimentos.observe(this) { updateToolbarTotal() }
-        salesViewModel.totalDesconto.observe(this) { updateToolbarTotal() }
+        salesViewModel.totalDesconto.observe(this) {
+            salesViewModel.refreshSaleAmountLimit()
+            updateToolbarTotal()
+        }
 
         btnCancelarVenda.setOnClickListener { confirmCancelSale() }
+        salesViewModel.refreshSaleAmountLimit()
         updateToolbarTotal()
 
         onBackPressedDispatcher.addCallback(this) {
@@ -101,7 +112,22 @@ class SalesActivity : AppCompatActivity() {
         CliSiTefIHolder.warmUp(this)
     }
 
-    fun launchTefSale(amount: String, operator: String, functionId: Int) {
+    fun launchTefSale(amount: String, operator: String, functionId: Int): Boolean {
+        val limitCents = salesViewModel.getSaleAmountLimitCents()
+        val amountCents = MoneyInputMask.parseToCents(amount)
+
+        if (SaleAmountRules.exceedsLimitCents(amountCents, limitCents)) {
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.error_sale_value_exceeds_total,
+                    MoneyInputMask.formatFromCents(limitCents),
+                ),
+                Toast.LENGTH_LONG,
+            ).show()
+            return false
+        }
+
         val saleAbastecimentos = salesViewModel.saleAbastecimentos.value.orEmpty()
         tefSaleLauncher.launch(
             TefTransactionActivity.intent(
@@ -115,6 +141,7 @@ class SalesActivity : AppCompatActivity() {
                 ),
             )
         )
+        return true
     }
 
     fun goToTab(index: Int) {

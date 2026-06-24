@@ -45,6 +45,9 @@
     <string name="back">Voltar</string>
     <string name="error_sale_value_required">Informe o valor da venda.</string>
     <string name="error_sale_value_invalid">Informe um valor de venda maior que zero.</string>
+    <string name="error_sale_value_exceeds_total">O valor da venda não pode ser maior que o total (R$ %1$s).</string>
+    <string name="sale_summary_total_label">Total da venda: R$ %1$s</string>
+    <string name="error_sale_fueling_total_missing">Não há total de abastecimentos para fechar a venda.</string>
     <string name="error_invalid_cpf_cnpj">CPF ou CNPJ inválido.</string>
     <string name="error_sale_operator_required">Informe o operador da venda.</string>
     <string name="sale_in_progress">Venda em andamento. Cancele a venda para sair.</string>

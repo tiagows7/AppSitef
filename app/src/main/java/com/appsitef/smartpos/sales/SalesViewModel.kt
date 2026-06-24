@@ -53,6 +53,10 @@ class SalesViewModel : ViewModel() {
     private val _totalDesconto = MutableLiveData(0.0)
     val totalDesconto: LiveData<Double> = _totalDesconto
 
+    /** Teto do valor da venda em centavos — sincronizado com o total exibido na toolbar. */
+    private val _saleAmountLimitCents = MutableLiveData(0L)
+    val saleAmountLimitCents: LiveData<Long> = _saleAmountLimitCents
+
     private val _cupomPromo = MutableLiveData<CupomPromo?>(null)
     val cupomPromo: LiveData<CupomPromo?> = _cupomPromo
 
@@ -82,6 +86,7 @@ class SalesViewModel : ViewModel() {
     fun commitSaleAbastecimentos() {
         val selected = _selectedAbastecimentos.value.orEmpty()
         _saleAbastecimentos.value = selected.toList()
+        refreshSaleAmountLimit()
     }
 
     fun getSaleTotalAbatot(): Double {
@@ -90,6 +95,32 @@ class SalesViewModel : ViewModel() {
 
     fun getSaleNetTotalAbatot(): Double {
         return getNetTotal(_saleAbastecimentos.value.orEmpty())
+    }
+
+    /** Teto do campo "Valor da venda" — total líquido exibido na venda. */
+    fun refreshSaleAmountLimit() {
+        val items = getToolbarAbastecimentos()
+        _saleAmountLimitCents.value = if (items.isEmpty()) {
+            0L
+        } else {
+            SaleAmountRules.netTotalCents(items)
+        }
+    }
+
+    fun getSaleAmountLimitCents(): Long = _saleAmountLimitCents.value ?: 0L
+
+    fun getSaleAmountLimit(): Double {
+        val cents = getSaleAmountLimitCents()
+        if (cents <= 0L) return 0.0
+        return cents / 100.0
+    }
+
+    fun exceedsSaleAmountLimitCents(amountCents: Long): Boolean {
+        return SaleAmountRules.exceedsLimitCents(amountCents, getSaleAmountLimitCents())
+    }
+
+    fun exceedsSaleAmountLimit(amount: Double): Boolean {
+        return exceedsSaleAmountLimitCents(com.appsitef.smartpos.ui.MoneyInputMask.toCents(amount))
     }
 
     fun getToolbarAbastecimentos(): List<Abastecimento> {
@@ -130,6 +161,7 @@ class SalesViewModel : ViewModel() {
         _saleValue.value = ""
         _totalDesconto.value = 0.0
         _cupomPromo.value = null
+        _saleAmountLimitCents.value = 0L
         lastSearchedCustomerCode = null
         lastValidatedPromoCode = null
         _lastTefTransactionResult.value = null
@@ -289,6 +321,7 @@ class SalesViewModel : ViewModel() {
         _abastecimentos.value = _abastecimentos.value.orEmpty().map { item ->
             updatedById[item.id] ?: item.copy(abadesconto = 0.0)
         }
+        refreshSaleAmountLimit()
     }
 
     private fun clearDiscountsInList(items: List<Abastecimento>): List<Abastecimento> {

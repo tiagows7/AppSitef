@@ -8,6 +8,7 @@ import androidx.activity.addCallback
 import androidx.appcompat.app.AppCompatActivity
 import br.com.softwareexpress.sitef.android.CliSiTef
 import com.appsitef.smartpos.sales.AbastecimentoIntentSerializer
+import com.appsitef.smartpos.sales.SaleAmountRules
 import com.appsitef.smartpos.sales.SaleContextIntentSerializer
 import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
 import com.appsitef.smartpos.tef.CliSiTefConstants
@@ -89,6 +90,20 @@ class TefTransactionActivity : AppCompatActivity() {
         if (amount.isBlank() && operationMode == TefOperationMode.SALE) {
             showFatal("Valor da venda não informado.")
             return
+        }
+
+        if (operationMode == TefOperationMode.SALE) {
+            val saleLimitCents = SaleAmountRules.netTotalCents(saleAbastecimentos)
+            val amountCents = MoneyInputMask.parseToCents(amount)
+            if (SaleAmountRules.exceedsLimitCents(amountCents, saleLimitCents)) {
+                showFatal(
+                    getString(
+                        R.string.error_sale_value_exceeds_total,
+                        MoneyInputMask.formatFromCents(saleLimitCents),
+                    )
+                )
+                return
+            }
         }
 
         tvTefTransactionAmount.text = when (operationMode) {

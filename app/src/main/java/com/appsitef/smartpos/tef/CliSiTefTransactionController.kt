@@ -16,6 +16,7 @@ import br.com.softwareexpress.sitef.android.ICliSiTefListener
 import br.com.softwareexpress.sitef.android.modules.IPinPad
 import com.appsitef.smartpos.R
 import com.appsitef.smartpos.TefTransactionActivity
+import com.appsitef.smartpos.sales.SaleAmountRules
 import com.appsitef.smartpos.sales.model.Abastecimento
 import com.appsitef.smartpos.sales.model.SaleContext
 import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
@@ -107,6 +108,22 @@ class CliSiTefTransactionController(
         if (running.getAndSet(true)) return
         saleAmount = amount
         saleOperator = operator
+
+        if (operationMode == TefOperationMode.SALE) {
+            val saleLimitCents = SaleAmountRules.netTotalCents(saleAbastecimentos)
+            val amountCents = MoneyInputMask.parseToCents(amount)
+            if (SaleAmountRules.exceedsLimitCents(amountCents, saleLimitCents)) {
+                running.set(false)
+                finishWithError(
+                    activity.getString(
+                        R.string.error_sale_value_exceeds_total,
+                        MoneyInputMask.formatFromCents(saleLimitCents),
+                    )
+                )
+                return
+            }
+        }
+
         settled.set(false)
         abortRequested.set(false)
         abortFallbackPosted.set(false)
