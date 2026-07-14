@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.os.Looper
 import android.os.SystemClock
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.util.Log
 import android.view.LayoutInflater
 import android.widget.EditText
@@ -58,6 +59,9 @@ class CliSiTefTransactionController(
     private val settled = AtomicBoolean(false)
     private val menuDialogOpen = AtomicBoolean(false)
     private var pendingMenuTitle: String? = null
+    private var lastOperatorPrompt: String = ""
+    private var supervisorPasswordPending = false
+    private var supervisorPasswordMinLength = 0
     private val abortRequested = AtomicBoolean(false)
     private val abortFallbackPosted = AtomicBoolean(false)
     private var activeDialog: AlertDialog? = null
@@ -147,6 +151,9 @@ class CliSiTefTransactionController(
         pendingConfirmQueue.clear()
         pendingConfirmOnComplete = null
         pendingConfirmFinishParams = ""
+        lastOperatorPrompt = ""
+        supervisorPasswordPending = false
+        supervisorPasswordMinLength = 0
 
         try {
             TefPreferences.loadModuloIniIfExists(activity)
@@ -207,13 +214,14 @@ class CliSiTefTransactionController(
         onStatus("Configurando CliSiTef…")
 
         val sitefAddress = TefPreferences.getSitefConfigureAddress(activity)
+        val numeroTerminal = TefPreferences.getTerminalId(activity)
         val additionalParams = TefPreferences.getSitefConfigureAdditionalParams(activity)
-        onStatus("SiTef: $sitefAddress")
+        onStatus("SiTef: $sitefAddress | Terminal: $numeroTerminal")
 
         val configureCode = cliSiTef.configure(
             sitefAddress,
             TefPreferences.getStoreId(activity),
-            TefPreferences.getTerminalId(activity),
+            numeroTerminal,
             additionalParams
         )
 
@@ -237,9 +245,6 @@ class CliSiTefTransactionController(
         }
 
         val trnAmount = TefAmountFormatter.toCliSiTefAmount(amount)
-        val cashierOperator = formatOperatorForSitef(
-            operator.ifBlank { TefPreferences.getOperator(activity) },
-        )
 
         TefPendingFiscal.save(activity, taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
         TefSessionGuard.markTransactionStarted(taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
@@ -247,7 +252,7 @@ class CliSiTefTransactionController(
 
         Log.d(
             TAG,
-            "startTransaction fn=$functionId transacoes=[${TefPreferences.resolveTransacoesHabilitadas(activity)}] " +
+            "startTransaction fn=$functionId terminal=$numeroTerminal transacoes=[${TefPreferences.resolveTransacoesHabilitadas(activity)}] " +
                 "params=[$restrictions]",
         )
 
@@ -258,7 +263,7 @@ class CliSiTefTransactionController(
             taxInvoiceNumber,
             taxInvoiceDate,
             taxInvoiceTime,
-            cashierOperator,
+            numeroTerminal,
             restrictions,
         )
 
@@ -276,7 +281,7 @@ class CliSiTefTransactionController(
         if (!abortRequested.compareAndSet(false, true)) return
 
         dismissActiveDialog()
-        menuDialogOpen.set(false)
+        hideInlineMenuOptions()
         onHidePixQrCode()
         showOperatorMessage("Cancelando transação…")
 
@@ -336,6 +341,7 @@ class CliSiTefTransactionController(
         cancelReceiptFinalize()
         cancelPendingConfirmWatchdog()
         dismissActiveDialog()
+        hideInlineMenuOptions()
         confirmingPendingAfterSuccess = false
         pendingConfirmQueue.clear()
         pendingConfirmOnComplete = null
@@ -506,9 +512,13 @@ class CliSiTefTransactionController(
                 showPaymentMenu(buffer)
             }
 
-            CliSiTef.CMD_GET_FIELD_INTERNAL,
             CliSiTef.CMD_GET_PINPAD_CONFIRMATION -> {
-                showOperatorMessage(buffer)
+                val prompt = buffer.ifBlank { lastOperatorPrompt }
+                showOperatorMessage(prompt)
+                if (shouldInterceptSupervisorPassword(command, prompt)) {
+                    showSupervisorPasswordDialog(prompt, minLength, maxLength)
+                    return
+                }
                 continueWith("")
             }
 
@@ -536,6 +546,8 @@ class CliSiTefTransactionController(
                     showCurrencyInput(buffer, minLength, maxLength) { value ->
                         continueWith(value)
                     }
+                } else if (shouldInterceptSupervisorPassword(command, buffer)) {
+                    showSupervisorPasswordDialog(buffer, minLength, maxLength)
                 } else {
                     showInput(buffer, minLength, maxLength) { value ->
                         continueWith(value)
@@ -653,14 +665,29 @@ class CliSiTefTransactionController(
             return
         }
 
-        val title = pendingMenuTitle?.ifBlank { null } ?: "Forma de pagamento"
+        val title = pendingMenuTitle?.ifBlank { null }
+            ?: if (operationMode == TefOperationMode.ADMIN_MENU) {
+                activity.getString(R.string.tef_menu_title_admin)
+            } else {
+                activity.getString(R.string.tef_menu_title_payment)
+            }
         pendingMenuTitle = null
 
-        val dialogView = LayoutInflater.from(activity)
-            .inflate(R.layout.dialog_tef_menu_options, null, false)
-        dialogView.findViewById<TextView>(R.id.tvMenuTitle).text = title
+        dismissActiveDialog()
+        showInlineMenuOptions(title, options)
+    }
 
-        val buttonContainer = dialogView.findViewById<LinearLayout>(R.id.containerMenuButtons)
+    private fun showInlineMenuOptions(title: String, options: List<MenuOption>) {
+        val menuCard = activity.findViewById<android.view.View>(R.id.cardTefMenuOptions)
+        val titleView = activity.findViewById<TextView>(R.id.tvMenuTitle)
+        val buttonContainer = activity.findViewById<LinearLayout>(R.id.containerMenuButtons)
+        val operatorCard = activity.findViewById<android.view.View>(R.id.cardOperatorMessage)
+        val pixCard = activity.findViewById<android.view.View>(R.id.cardPixQrCode)
+        val cancelButton = activity.findViewById<MaterialButton>(R.id.btnCancelarTef)
+
+        titleView.text = title
+        buttonContainer.removeAllViews()
+
         val inflater = LayoutInflater.from(activity)
         options.forEach { option ->
             val button = inflater.inflate(
@@ -670,8 +697,7 @@ class CliSiTefTransactionController(
             ) as MaterialButton
             button.text = option.label
             button.setOnClickListener {
-                menuDialogOpen.set(false)
-                dismissActiveDialog()
+                hideInlineMenuOptions()
                 capturePaymentMenuSelection(option.label, option.code)
                 showOperatorMessage(option.label)
                 appendStatus("Opção selecionada: ${option.label} (código ${option.code})")
@@ -680,18 +706,26 @@ class CliSiTefTransactionController(
             buttonContainer.addView(button)
         }
 
-        dialogView.findViewById<MaterialButton>(R.id.btnMenuCancel).setOnClickListener {
-            menuDialogOpen.set(false)
-            dismissActiveDialog()
-            abort()
-        }
+        operatorCard.visibility = android.view.View.GONE
+        pixCard.visibility = android.view.View.GONE
+        menuCard.visibility = android.view.View.VISIBLE
+        cancelButton.bringToFront()
+        cancelButton.text = activity.getString(R.string.tef_menu_cancel)
+        cancelButton.isEnabled = true
+    }
 
-        showTrackedDialog(
-            AlertDialog.Builder(activity)
-                .setView(dialogView)
-                .setCancelable(false)
-                .setOnDismissListener { menuDialogOpen.set(false) }
-        )
+    private fun hideInlineMenuOptions() {
+        menuDialogOpen.set(false)
+        val menuCard = activity.findViewById<android.view.View?>(R.id.cardTefMenuOptions)
+        val buttonContainer = activity.findViewById<LinearLayout?>(R.id.containerMenuButtons)
+        val operatorCard = activity.findViewById<android.view.View?>(R.id.cardOperatorMessage)
+        buttonContainer?.removeAllViews()
+        menuCard?.visibility = android.view.View.GONE
+        if (operatorCard != null &&
+            activity.findViewById<android.view.View?>(R.id.cardPixQrCode)?.visibility != android.view.View.VISIBLE
+        ) {
+            operatorCard.visibility = android.view.View.VISIBLE
+        }
     }
 
     private fun showConfirmationDialog(message: String, onAnswer: (Int) -> Unit) {
@@ -724,6 +758,73 @@ class CliSiTefTransactionController(
                 .setView(input)
                 .setPositiveButton("OK") { _, _ -> onValue(input.text.toString()) }
                 .setNegativeButton("Cancelar") { _, _ -> abort() }
+        )
+    }
+
+    private fun showSupervisorPasswordDialog(
+        prompt: String,
+        minLength: Int,
+        maxLength: Int,
+    ) {
+        val message = prompt.ifBlank { lastOperatorPrompt }.ifBlank {
+            activity.getString(R.string.tef_supervisor_password_prompt)
+        }
+        supervisorPasswordPending = true
+        if (minLength > 0) {
+            supervisorPasswordMinLength = minLength
+        }
+        showOperatorMessage(message)
+        showSupervisorPasswordInput(message, minLength, maxLength) { value ->
+            submitSupervisorPassword(value, minLength)
+        }
+    }
+
+    private fun showSupervisorPasswordInput(
+        prompt: String,
+        minLength: Int,
+        maxLength: Int,
+        onValue: (String) -> Unit,
+    ) {
+        val input = EditText(activity).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+            if (maxLength > 0) {
+                filters = arrayOf(android.text.InputFilter.LengthFilter(maxLength))
+            }
+        }
+        showTrackedDialog(
+            AlertDialog.Builder(activity)
+                .setMessage(prompt)
+                .setView(input)
+                .setPositiveButton(R.string.tef_supervisor_password_confirm) { _, _ ->
+                    onValue(input.text.toString().trim())
+                }
+                .setNegativeButton("Cancelar") { _, _ -> abort() }
+        )
+    }
+
+    private fun submitSupervisorPassword(value: String, minLength: Int) {
+        if (!TefSupervisorPassword.isValid(value)) {
+            Toast.makeText(
+                activity,
+                activity.getString(R.string.tef_supervisor_password_invalid),
+                Toast.LENGTH_LONG,
+            ).show()
+            showSupervisorPasswordDialog(lastOperatorPrompt, minLength, 0)
+            return
+        }
+        val payload = TefSupervisorPassword.formatForSitef(value, minLength)
+        supervisorPasswordPending = false
+        supervisorPasswordMinLength = 0
+        appendStatus("Senha do supervisor aceita.")
+        continueWith(payload)
+    }
+
+    private fun shouldInterceptSupervisorPassword(command: Int, prompt: String): Boolean {
+        return TefSupervisorPassword.shouldIntercept(
+            command = command,
+            prompt = prompt.ifBlank { lastOperatorPrompt },
+            isAdminOperation = operationMode != TefOperationMode.SALE,
         )
     }
 
@@ -778,10 +879,27 @@ class CliSiTefTransactionController(
     private fun continueWith(data: String) {
         dispatchOnMain {
             if (!running.get() || activity.isFinishing) return@dispatchOnMain
+
+            var payload = data
+            if (supervisorPasswordPending && payload.isNotBlank()) {
+                if (!TefSupervisorPassword.isValid(payload)) {
+                    Toast.makeText(
+                        activity,
+                        activity.getString(R.string.tef_supervisor_password_invalid),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    showSupervisorPasswordDialog(lastOperatorPrompt, supervisorPasswordMinLength, 0)
+                    return@dispatchOnMain
+                }
+                payload = TefSupervisorPassword.formatForSitef(payload, supervisorPasswordMinLength)
+                supervisorPasswordPending = false
+                supervisorPasswordMinLength = 0
+            }
+
             try {
                 cliSiTef.setActivity(activity)
-                val result = cliSiTef.continueTransaction(data)
-                Log.d(TAG, "continueTransaction([$data])=$result")
+                val result = cliSiTef.continueTransaction(payload)
+                Log.d(TAG, "continueTransaction([$payload])=$result")
                 when (result) {
                     CliSiTefConstants.CONTINUA -> appendStatus("Processando…")
                     0 -> appendStatus("continue OK")
@@ -817,6 +935,10 @@ class CliSiTefTransactionController(
 
     private fun showOperatorMessage(message: String) {
         if (message.isBlank()) return
+        lastOperatorPrompt = message.trim()
+        if (TefSupervisorPassword.isSupervisorPasswordHint(message)) {
+            supervisorPasswordPending = true
+        }
         appendStatus(message)
         onOperatorMessage(message)
     }
@@ -874,10 +996,11 @@ class CliSiTefTransactionController(
     }
 
     private fun probeConfigure(): Int {
+        val numeroTerminal = TefPreferences.getTerminalId(activity)
         return cliSiTef.configure(
             TefPreferences.getSitefConfigureAddress(activity),
             TefPreferences.getStoreId(activity),
-            TefPreferences.getTerminalId(activity),
+            numeroTerminal,
             TefPreferences.getSitefConfigureAdditionalParams(activity)
         )
     }
@@ -1480,17 +1603,12 @@ class CliSiTefTransactionController(
     private fun describePinpadRoutineError(): String =
         "Erro pinpad (-43). Verifique FactoryService Gertec."
 
-    private fun formatOperatorForSitef(raw: String): String {
-        val digits = raw.filter { it.isDigit() }
-        if (digits.isEmpty()) return "001"
-        return digits.takeLast(3).padStart(3, '0')
-    }
-
     /** Delphi `transacoesHabilitadas` no Intent / m-SiTef `restricoes`. */
     private fun buildStartTransactionParameters(explicitRestrictions: String): String {
         return TefClsitConfig.mergeStartTransactionParameters(
             explicitRestrictions = explicitRestrictions,
             transacoesHabilitadas = TefPreferences.resolveTransacoesHabilitadas(activity),
+            numeroTerminal = TefPreferences.getTerminalId(activity),
         )
     }
 

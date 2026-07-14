@@ -67,6 +67,26 @@ android {
     }
 }
 
+tasks.register("renameDebugApk") {
+    doLast {
+        def outDir = file("${buildDir}/outputs/apk/debug")
+        def from = new File(outDir, "app-debug.apk")
+        def to = new File(outDir, "siscom-pos-debug.apk")
+        if (from.exists()) {
+            if (to.exists()) {
+                to.delete()
+            }
+            from.renameTo(to)
+        }
+    }
+}
+
+afterEvaluate {
+    tasks.matching { it.name == "assembleDebug" }.configureEach {
+        finalizedBy("renameDebugApk")
+    }
+}
+
 tasks.register("prepareTefAssets") {
     group = "build"
     description = "Copia clsit.ini e cheques.ini de app/tef-config para assets do APK"

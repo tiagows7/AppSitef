@@ -10,7 +10,7 @@ object TefClsitConfig {
      * Códigos de menu — ver tabela “meios de pagamento” da CliSiTef (não confundir com função 111/121/130).
      */
     const val DEFAULT_TRANSACOES_HABILITADAS =
-        "16;26;27;30;40;43;56;57;58;130;3203;3624;3627"
+        "16;26;27;28;30;40;43;56;57;58;130;3203;3624;3627"
 
     /**
      * Sempre presentes no menu administrativo (110), mesmo se o servidor enviar lista reduzida.
@@ -23,7 +23,7 @@ object TefClsitConfig {
 
     /** Transações adicionais exigidas para carga de tabelas / trace no menu admin. */
     const val DEFAULT_TRANSACOES_ADICIONAIS_HABILITADAS =
-        "40;56;57;58;60;61;70;71;72;3624;3625;3626"
+        "16;26;27;28;30;40;43;56;57;58;60;61;70;71;72;130;3624;3625;3626;3627"
 
     fun normalizeTransacoesHabilitadas(raw: String): String {
         if (raw.isBlank()) return ""
@@ -45,18 +45,46 @@ object TefClsitConfig {
         return "TransacoesHabilitadas=$normalized"
     }
 
+    fun buildNumeroTerminalParameter(terminalId: String): String {
+        val trimmed = terminalId.trim()
+        if (trimmed.isBlank()) return ""
+        return "NUMEROTERMINAL=$trimmed"
+    }
+
+    fun mergeSitefParameters(base: String, terminalId: String): String {
+        val numeroTerminal = buildNumeroTerminalParameter(terminalId)
+        if (numeroTerminal.isBlank()) return base.trim()
+
+        val trimmedBase = base.trim()
+        if (trimmedBase.isBlank()) return numeroTerminal
+        if (trimmedBase.contains("NUMEROTERMINAL=", ignoreCase = true)) return trimmedBase
+
+        if (trimmedBase.startsWith("[") && trimmedBase.endsWith("]")) {
+            val inner = trimmedBase.substring(1, trimmedBase.length - 1).trim().trimEnd(';')
+            return if (inner.isBlank()) {
+                "[$numeroTerminal]"
+            } else {
+                "[$inner;$numeroTerminal]"
+            }
+        }
+
+        return "$trimmedBase;$numeroTerminal"
+    }
+
     fun mergeStartTransactionParameters(
         explicitRestrictions: String,
         transacoesHabilitadas: String,
+        numeroTerminal: String = "",
     ): String {
         val transacoesPart = buildTransacoesHabilitadasRestriction(transacoesHabilitadas)
         val explicit = explicitRestrictions.trim()
-        return when {
+        val merged = when {
             explicit.isBlank() -> transacoesPart
             transacoesPart.isBlank() -> explicit
             explicit.contains("TransacoesHabilitadas=", ignoreCase = true) -> explicit
             else -> "$explicit;$transacoesPart"
         }
+        return mergeSitefParameters(merged, numeroTerminal)
     }
 
     fun ensureMandatoryAdminTransacoes(raw: String): String {
@@ -100,37 +128,87 @@ object TefClsitConfig {
     }
 
     /**
-     * Parâmetros adicionais do `configure` (manual CliSiTef §5.1.2):
-     * `[ParmsClient=1=CNPJ_ESTABELECIMENTO;2=CNPJ_SOFTWARE_HOUSE]`
+     * Parâmetros adicionais do `configure` (manual CliSiTef §5.1.2 / §9 TLS):
+     * `[TipoComunicacaoExterna=...;ParmsClient=1=CNPJ;2=CNPJ_SW;NUMEROTERMINAL=...;...]`
      *
      * Id 1 = CNPJ do estabelecimento (`TEF_CNPJ`).
      * Id 2 = CNPJ da automação comercial (`TEF_CNPJAUTOMACAO`).
+     *
+     * COMEXTERNA=1 (GSurf):
+     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA`,
+     * `GSurf.OTP` ← `TEF_OTP`,
+     * `TerminalUUID` ← `TEF_GSURFUID`.
+     *
+     * COMEXTERNA=2 (GWP/TLS):
+     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA`,
+     * `TokenRegistro` ← `TEF_TLSTOKEN`,
+     * `GwpTipoProxy` ← `TEF_TLSTIPOPROXY`,
+     * `GwpEnderecoProxy` ← `TEF_TLSENDERECOPROXY`.
      */
     fun buildConfigureAdditionalParams(
         tipoComunicacaoExterna: String,
         cnpjEstabelecimento: String,
         cnpjAutomacao: String,
+        numeroTerminal: String = "",
+        otp: String = "",
+        tlsExterna: String = "",
+        tlsToken: String = "",
+        tlsTipoProxy: String = "",
+        tlsEnderecoProxy: String = "",
+        gsurfUid: String = "",
     ): String {
+        val parts = mutableListOf<String>()
+        val comExterna = tipoComunicacaoExterna.trim().ifBlank { "0" }
+
+        when (comExterna) {
+            "1" -> {
+                tlsExterna.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("TipoComunicacaoExterna=$it")
+                }
+                otp.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("GSurf.OTP=$it")
+                }
+                gsurfUid.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("TerminalUUID=$it")
+                }
+            }
+            "2" -> {
+                tlsExterna.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("TipoComunicacaoExterna=$it")
+                }
+                tlsToken.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("TokenRegistro=$it")
+                }
+                tlsTipoProxy.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("GwpTipoProxy=$it")
+                }
+                tlsEnderecoProxy.trim().takeIf { it.isNotEmpty() }?.let {
+                    parts.add("GwpEnderecoProxy=$it")
+                }
+            }
+            else -> {
+                if (comExterna != "0") {
+                    parts.add("TipoComunicacaoExterna=$comExterna")
+                }
+            }
+        }
+
         val estabelecimento = cnpjEstabelecimento.filter { it.isDigit() }
         val automacao = cnpjAutomacao.filter { it.isDigit() }
-        if (estabelecimento.isBlank() && automacao.isBlank()) return ""
-
-        val parmsClient = buildString {
-            append("ParmsClient=")
-            val parts = mutableListOf<String>()
-            if (estabelecimento.isNotBlank()) parts.add("1=$estabelecimento")
-            if (automacao.isNotBlank()) parts.add("2=$automacao")
-            append(parts.joinToString(";"))
+        if (estabelecimento.isNotBlank() || automacao.isNotBlank()) {
+            val parmsClient = buildString {
+                append("ParmsClient=")
+                val clientParts = mutableListOf<String>()
+                if (estabelecimento.isNotBlank()) clientParts.add("1=$estabelecimento")
+                if (automacao.isNotBlank()) clientParts.add("2=$automacao")
+                append(clientParts.joinToString(";"))
+            }
+            parts.add(parmsClient)
         }
 
-        val comExterna = tipoComunicacaoExterna.trim().ifBlank { "0" }
-        return if (comExterna == "0") {
-            "[$parmsClient]"
-        } else {
-            "[TipoComunicacaoExterna=$comExterna;$parmsClient]"
-        }
+        val base = if (parts.isEmpty()) "" else "[${parts.joinToString(";")}]"
+        return mergeSitefParameters(base, numeroTerminal)
     }
-
     fun patchIniSectionValue(
         content: String,
         section: String,

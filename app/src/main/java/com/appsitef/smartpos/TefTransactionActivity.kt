@@ -61,6 +61,12 @@ class TefTransactionActivity : AppCompatActivity() {
             defaultHint = getString(R.string.tef_pix_qr_hint),
         )
         val btnCancelar = findViewById<MaterialButton>(R.id.btnCancelarTef)
+        btnCancelar.text = when (intent.getStringExtra(EXTRA_OPERATION_MODE)) {
+            TefOperationMode.ADMIN_MENU.name,
+            TefOperationMode.ADMIN_REPRINT.name,
+            TefOperationMode.ADMIN_CANCELLATION.name -> getString(R.string.tef_menu_cancel)
+            else -> getString(R.string.tef_cancel_transaction)
+        }
         val tvTefTransactionAmount = findViewById<android.widget.TextView>(R.id.tvTefTransactionAmount)
 
         cliSiTef = CliSiTefHolder.bindTransactionActivity(this)

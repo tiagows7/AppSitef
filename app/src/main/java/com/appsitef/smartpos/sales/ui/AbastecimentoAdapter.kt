@@ -121,8 +121,12 @@ class AbastecimentoAdapter(
             tvQuantidade.text = "${formatDecimal(item.abaqtd)} L"
             tvValorUnitario.text = "R$ ${formatDecimal(item.abavlruni)}/L"
             tvValorTotal.text = "R$ ${formatDecimal(item.abatot)}"
-            tvOperador.text = item.abaopedes.ifBlank { "" }
-            tvOperador.visibility = if (item.abaopedes.isBlank()) View.GONE else View.VISIBLE
+            tvOperador.text = item.abaopedes.trim()
+            tvOperador.visibility = View.VISIBLE
+            // Espaço reservado quando não há operador, para o valor permanecer à direita.
+            if (tvOperador.text.isNullOrBlank()) {
+                tvOperador.text = " "
+            }
 
             val outline = ContextCompat.getColor(itemView.context, R.color.brand_outline)
             val surface = ContextCompat.getColor(itemView.context, R.color.brand_surface)

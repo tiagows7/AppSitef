@@ -171,7 +171,12 @@ class ConfigurationActivity : AppCompatActivity() {
                 tefImprimeBanri = json.optString("TEF_IMPRIMEBANRI"),
                 tefAceitaParcial = json.optString("TEF_ACEITAVALORPARCIAL"),
                 tefVendaProduto = json.optString("TEF_VENDAPRODUTO", "N"),
-                tefTipoDocumento = json.optString("TEF_TIPODOCUMENTO", "N")
+                tefTipoDocumento = json.optString("TEF_TIPODOCUMENTO", "N"),
+                tefTlsExterna = json.optString("TEF_TLSEXTERNA"),
+                tefTlsToken = json.optString("TEF_TLSTOKEN"),
+                tefTlsTipoProxy = json.optString("TEF_TLSTIPOPROXY"),
+                tefTlsEnderecoProxy = json.optString("TEF_TLSENDERECOPROXY"),
+                tefGsurfUid = json.optString("TEF_GSURFUID"),
             )
         }
     }

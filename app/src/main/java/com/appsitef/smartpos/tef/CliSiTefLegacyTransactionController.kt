@@ -91,7 +91,7 @@ class CliSiTefLegacyTransactionController(
 
             onStatus("Iniciando transação TEF…")
 
-            val operadorParam = operator.trim().ifBlank { terminalId }
+            val operadorParam = terminalId
             val startSts = cliSiTefI.iniciaFuncaoSiTefInterativo(
                 functionId,
                 transactionAmount,

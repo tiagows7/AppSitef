@@ -104,5 +104,12 @@
     <string name="tef_admin_reprint_done">Reimpressão concluída.</string>
     <string name="tef_admin_menu_label">Administrativo TEF</string>
     <string name="tef_admin_menu_done">Operação administrativa concluída.</string>
+    <string name="tef_menu_title_payment">Forma de pagamento</string>
+    <string name="tef_menu_title_admin">Menu administrativo</string>
+    <string name="tef_menu_cancel">Cancelar</string>
+    <string name="tef_cancel_transaction">Cancelar transação</string>
     <string name="tef_admin_operation_open_error">Não foi possível abrir a operação TEF: %1$s</string>
+    <string name="tef_supervisor_password_prompt">Informe a senha do supervisor</string>
+    <string name="tef_supervisor_password_invalid">Senha do supervisor inválida.</string>
+    <string name="tef_supervisor_password_confirm">Confirmar</string>
 </resources>

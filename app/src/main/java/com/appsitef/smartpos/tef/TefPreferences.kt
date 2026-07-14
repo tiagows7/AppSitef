@@ -36,6 +36,11 @@ object TefPreferences {
     private const val KEY_TEF_ACEITA_PARCIAL = "tef_aceita_parcial"
     private const val KEY_TEF_VENDA_PRODUTO = "tef_venda_produto"
     private const val KEY_TEF_TIPO_DOCUMENTO = "tef_tipo_documento"
+    private const val KEY_TEF_TLS_EXTERNA = "tef_tls_externa"
+    private const val KEY_TEF_TLS_TOKEN = "tef_tls_token"
+    private const val KEY_TEF_TLS_TIPO_PROXY = "tef_tls_tipo_proxy"
+    private const val KEY_TEF_TLS_ENDERECO_PROXY = "tef_tls_endereco_proxy"
+    private const val KEY_TEF_GSURF_UID = "tef_gsurf_uid"
     private const val KEY_GERAL_CNPJ = "geral_cnpj"
     private const val KEY_GERAL_REGISTRO = "geral_registro"
     private const val KEY_GERAL_ATIVO = "geral_ativo"
@@ -129,12 +134,49 @@ object TefPreferences {
         return prefs(context).getString(KEY_TEF_COM_EXTERNA, "0") ?: "0"
     }
 
+    fun getTefOtp(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_OTP, "") ?: ""
+    }
+
+    fun getTefTlsExterna(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_TLS_EXTERNA, "") ?: ""
+    }
+
+    fun getTefTlsToken(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_TLS_TOKEN, "") ?: ""
+    }
+
+    fun getTefTlsTipoProxy(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_TLS_TIPO_PROXY, "") ?: ""
+    }
+
+    fun getTefTlsEnderecoProxy(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_TLS_ENDERECO_PROXY, "") ?: ""
+    }
+
+    fun getTefGsurfUid(context: Context): String {
+        loadModuloIniIfExists(context)
+        return prefs(context).getString(KEY_TEF_GSURF_UID, "") ?: ""
+    }
+
     fun getSitefConfigureAdditionalParams(context: Context): String {
         loadModuloIniIfExists(context)
         return TefClsitConfig.buildConfigureAdditionalParams(
             tipoComunicacaoExterna = getTefComExterna(context),
             cnpjEstabelecimento = prefs(context).getString(KEY_TEF_CNPJ, "") ?: "",
             cnpjAutomacao = prefs(context).getString(KEY_TEF_CNPJ_AUTOMACAO, "") ?: "",
+            numeroTerminal = getTerminalId(context),
+            otp = getTefOtp(context),
+            tlsExterna = getTefTlsExterna(context),
+            tlsToken = getTefTlsToken(context),
+            tlsTipoProxy = getTefTlsTipoProxy(context),
+            tlsEnderecoProxy = getTefTlsEnderecoProxy(context),
+            gsurfUid = getTefGsurfUid(context),
         )
     }
     fun getOperator(context: Context): String = prefs(context).getString(KEY_OPERATOR, "0001") ?: "0001"
@@ -181,7 +223,12 @@ object TefPreferences {
         val tefImprimeBanri: String,
         val tefAceitaParcial: String,
         val tefVendaProduto: String,
-        val tefTipoDocumento: String
+        val tefTipoDocumento: String,
+        val tefTlsExterna: String = "",
+        val tefTlsToken: String = "",
+        val tefTlsTipoProxy: String = "",
+        val tefTlsEnderecoProxy: String = "",
+        val tefGsurfUid: String = "",
     )
 
     fun saveConfigurationFromTerminal(
@@ -209,12 +256,24 @@ object TefPreferences {
             .putString(KEY_TEF_OTP, terminal.tefOtp)
             .putString(KEY_TEF_CNPJ_AUTOMACAO, terminal.tefCnpjAutomacao)
             .putString(KEY_TEF_TRANSACOES, terminal.tefTransacoesHabilitadas)
+            .putString(KEY_TEF_TLS_EXTERNA, terminal.tefTlsExterna)
+            .putString(KEY_TEF_TLS_TOKEN, terminal.tefTlsToken)
+            .putString(KEY_TEF_TLS_TIPO_PROXY, terminal.tefTlsTipoProxy)
+            .putString(KEY_TEF_TLS_ENDERECO_PROXY, terminal.tefTlsEnderecoProxy)
+            .putString(KEY_TEF_GSURF_UID, terminal.tefGsurfUid)
             .putString(
                 KEY_ADDITIONAL_PARAMS,
                 TefClsitConfig.buildConfigureAdditionalParams(
                     tipoComunicacaoExterna = terminal.tefComExterna,
                     cnpjEstabelecimento = terminal.tefCnpj,
                     cnpjAutomacao = terminal.tefCnpjAutomacao,
+                    numeroTerminal = terminal.tefIdTerminal,
+                    otp = terminal.tefOtp,
+                    tlsExterna = terminal.tefTlsExterna,
+                    tlsToken = terminal.tefTlsToken,
+                    tlsTipoProxy = terminal.tefTlsTipoProxy,
+                    tlsEnderecoProxy = terminal.tefTlsEnderecoProxy,
+                    gsurfUid = terminal.tefGsurfUid,
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, terminal.tefObrigadoOperador)
@@ -281,6 +340,11 @@ object TefPreferences {
             appendLine("ACEITAPARCIAL=${terminal.tefAceitaParcial}")
             appendLine("VENDAPRODUTO=${terminal.tefVendaProduto}")
             appendLine("TIPODOCUMENTO=${terminal.tefTipoDocumento}")
+            appendLine("TLSEXTERNA=${terminal.tefTlsExterna}")
+            appendLine("TLSTOKEN=${terminal.tefTlsToken}")
+            appendLine("TLSTIPOPROXY=${terminal.tefTlsTipoProxy}")
+            appendLine("TLSENDERECOPROXY=${terminal.tefTlsEnderecoProxy}")
+            appendLine("GSURFUID=${terminal.tefGsurfUid}")
         }
         File(context.filesDir, MODULO_INI_FILE).writeText(content)
         CliSiTefAssetInstaller.syncTransacoesHabilitadas(context)
@@ -318,12 +382,24 @@ object TefPreferences {
             .putString(KEY_TEF_OTP, tef["OTP"].orEmpty())
             .putString(KEY_TEF_CNPJ_AUTOMACAO, tef["CNPJAUTOMACAO"].orEmpty())
             .putString(KEY_TEF_TRANSACOES, tef["TRANSACAOHABILITADAS"].orEmpty())
+            .putString(KEY_TEF_TLS_EXTERNA, tef["TLSEXTERNA"].orEmpty())
+            .putString(KEY_TEF_TLS_TOKEN, tef["TLSTOKEN"].orEmpty())
+            .putString(KEY_TEF_TLS_TIPO_PROXY, tef["TLSTIPOPROXY"].orEmpty())
+            .putString(KEY_TEF_TLS_ENDERECO_PROXY, tef["TLSENDERECOPROXY"].orEmpty())
+            .putString(KEY_TEF_GSURF_UID, tef["GSURFUID"].orEmpty())
             .putString(
                 KEY_ADDITIONAL_PARAMS,
                 TefClsitConfig.buildConfigureAdditionalParams(
                     tipoComunicacaoExterna = tef["COMEXTERNA"]?.ifBlank { "0" } ?: "0",
                     cnpjEstabelecimento = tef["CNPJ"].orEmpty(),
                     cnpjAutomacao = tef["CNPJAUTOMACAO"].orEmpty(),
+                    numeroTerminal = tef["IDTERMINAL"].orEmpty(),
+                    otp = tef["OTP"].orEmpty(),
+                    tlsExterna = tef["TLSEXTERNA"].orEmpty(),
+                    tlsToken = tef["TLSTOKEN"].orEmpty(),
+                    tlsTipoProxy = tef["TLSTIPOPROXY"].orEmpty(),
+                    tlsEnderecoProxy = tef["TLSENDERECOPROXY"].orEmpty(),
+                    gsurfUid = tef["GSURFUID"].orEmpty(),
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, tef["OBRIGADOOPERADOR"].orEmpty())
