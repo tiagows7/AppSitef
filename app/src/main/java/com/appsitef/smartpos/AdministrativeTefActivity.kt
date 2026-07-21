@@ -17,13 +17,22 @@ class AdministrativeTefActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
-        val messageRes = when (pendingSuccessMessageRes) {
-            R.string.tef_admin_cancellation_done -> R.string.tef_admin_cancellation_done
-            R.string.tef_admin_reprint_done -> R.string.tef_admin_reprint_done
-            R.string.tef_admin_menu_done -> R.string.tef_admin_menu_done
-            else -> null
+        val messageFromTef = result.data
+            ?.getStringExtra(TefTransactionActivity.EXTRA_TEF_MESSAGE)
+            ?.trim()
+            .orEmpty()
+        if (messageFromTef.isNotBlank()) {
+            Toast.makeText(this, messageFromTef, Toast.LENGTH_LONG).show()
+        } else {
+            val messageRes = when (pendingSuccessMessageRes) {
+                R.string.tef_admin_cancellation_done -> R.string.tef_admin_cancellation_done
+                R.string.tef_admin_reprint_done -> R.string.tef_admin_reprint_done
+                R.string.tef_admin_menu_done -> R.string.tef_admin_menu_done
+                R.string.tef_admin_pending_done -> R.string.tef_admin_pending_done
+                else -> null
+            }
+            messageRes?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
         }
-        messageRes?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
         pendingSuccessMessageRes = 0
     }
 
@@ -57,6 +66,14 @@ class AdministrativeTefActivity : AppCompatActivity() {
                 functionId = CliSiTefConstants.FUNCTION_CANCELLATION,
                 operationMode = TefOperationMode.ADMIN_CANCELLATION,
                 successMessageRes = R.string.tef_admin_cancellation_done,
+            )
+        }
+
+        findViewById<MaterialButton>(R.id.btnTransacoesPendentes).setOnClickListener {
+            launchTefOperation(
+                functionId = CliSiTefConstants.FUNCTION_PENDING,
+                operationMode = TefOperationMode.ADMIN_PENDING,
+                successMessageRes = R.string.tef_admin_pending_done,
             )
         }
 

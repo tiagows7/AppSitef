@@ -1,6 +1,7 @@
 package com.appsitef.smartpos
 
 import android.os.Bundle
+import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -33,6 +34,9 @@ class TefTransactionActivity : AppCompatActivity() {
     private lateinit var scrollStatus: ScrollView
     private lateinit var operatorMessagePanel: TefOperatorMessagePanel
     private lateinit var pixQrCodePanel: TefPixQrCodePanel
+    private lateinit var panelCancelConfirm: View
+    private lateinit var btnVoltar: MaterialButton
+    private lateinit var btnCancelar: MaterialButton
     private var controller: CliSiTefTransactionController? = null
     private val statusLines = StringBuilder()
     private var lastTefResultJson: String? = null
@@ -47,6 +51,9 @@ class TefTransactionActivity : AppCompatActivity() {
 
         tvStatus = findViewById(R.id.tvTefStatus)
         scrollStatus = findViewById(R.id.scrollTefStatus)
+        panelCancelConfirm = findViewById(R.id.panelTefCancelConfirm)
+        btnVoltar = findViewById(R.id.btnVoltarTef)
+        btnCancelar = findViewById(R.id.btnCancelarTef)
         val operatorCard = findViewById<MaterialCardView>(R.id.cardOperatorMessage)
         operatorMessagePanel = TefOperatorMessagePanel(
             card = operatorCard,
@@ -60,19 +67,33 @@ class TefTransactionActivity : AppCompatActivity() {
             imageView = findViewById(R.id.ivPixQrCode),
             defaultHint = getString(R.string.tef_pix_qr_hint),
         )
-        val btnCancelar = findViewById<MaterialButton>(R.id.btnCancelarTef)
         btnCancelar.text = when (intent.getStringExtra(EXTRA_OPERATION_MODE)) {
             TefOperationMode.ADMIN_MENU.name,
             TefOperationMode.ADMIN_REPRINT.name,
+            TefOperationMode.ADMIN_PENDING.name,
             TefOperationMode.ADMIN_CANCELLATION.name -> getString(R.string.tef_menu_cancel)
             else -> getString(R.string.tef_cancel_transaction)
         }
         val tvTefTransactionAmount = findViewById<android.widget.TextView>(R.id.tvTefTransactionAmount)
 
+        findViewById<MaterialButton>(R.id.btnTefCancelConfirmYes).setOnClickListener {
+            hideCancelConfirm()
+            btnCancelar.isEnabled = false
+            operatorMessagePanel.show("Cancelando transação…")
+            controller?.abort()
+        }
+        findViewById<MaterialButton>(R.id.btnTefCancelConfirmNo).setOnClickListener {
+            hideCancelConfirm()
+        }
+
         cliSiTef = CliSiTefHolder.bindTransactionActivity(this)
 
         onBackPressedDispatcher.addCallback(this) {
-            controller?.abort()
+            if (panelCancelConfirm.visibility == View.VISIBLE) {
+                hideCancelConfirm()
+            } else {
+                confirmAndAbortTef()
+            }
         }
 
         if (!CliSiTefTransactionController.isSdkPresent()) {
@@ -119,6 +140,8 @@ class TefTransactionActivity : AppCompatActivity() {
                 getString(R.string.tef_admin_reprint_label)
             TefOperationMode.ADMIN_MENU ->
                 getString(R.string.tef_admin_menu_label)
+            TefOperationMode.ADMIN_PENDING ->
+                getString(R.string.tef_admin_pending_label)
             TefOperationMode.SALE -> formatAmountForDisplay(amount)
         }
 
@@ -134,28 +157,59 @@ class TefTransactionActivity : AppCompatActivity() {
             onHidePixQrCode = { pixQrCodePanel.hide() },
             onPixQrMessage = { message -> pixQrCodePanel.updateHint(message) },
             onFinished = { success, message, result ->
+                hideCancelConfirm()
                 pixQrCodePanel.hide()
+                btnVoltar.visibility = View.GONE
+                btnVoltar.isEnabled = false
                 appendStatus(message)
                 Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 if (success) {
                     lastTefResultJson = result?.toJson()
                     setResult(RESULT_OK, android.content.Intent().apply {
                         putExtra(EXTRA_TEF_RESULT_JSON, lastTefResultJson)
+                        putExtra(EXTRA_TEF_MESSAGE, message)
                     })
                 } else {
                     setResult(RESULT_CANCELED)
                 }
                 btnCancelar.isEnabled = false
-                val delay = if (success) FINISH_DELAY_SUCCESS_MS else FINISH_DELAY_ERROR_MS
+                val delay = when {
+                    !success -> FINISH_DELAY_ERROR_MS
+                    operationMode == TefOperationMode.ADMIN_PENDING ->
+                        FINISH_DELAY_PENDING_SUCCESS_MS
+                    else -> FINISH_DELAY_SUCCESS_MS
+                }
                 btnCancelar.postDelayed({ finish() }, delay)
-            }
+            },
+            onReopenPaymentMenu = {
+                hideCancelConfirm()
+                pixQrCodePanel.hide()
+                btnVoltar.visibility = View.GONE
+                btnVoltar.isEnabled = false
+                btnCancelar.isEnabled = false
+                setResult(
+                    RESULT_CANCELED,
+                    android.content.Intent().apply {
+                        putExtra(EXTRA_TEF_REOPEN_PAYMENT, true)
+                        putExtra(EXTRA_AMOUNT, amount)
+                        putExtra(EXTRA_OPERATOR, operator)
+                        putExtra(EXTRA_FUNCTION, functionId)
+                    },
+                )
+                finish()
+            },
         )
 
+        btnVoltar.setOnClickListener {
+            if (!btnVoltar.isEnabled || isFinishing) return@setOnClickListener
+            // Fecha a tela na hora (sem esperar abort/timeouts do CliSiTef).
+            btnVoltar.isEnabled = false
+            btnCancelar.isEnabled = false
+            controller?.goBackToPreviousMenu()
+        }
         btnCancelar.setOnClickListener {
             if (btnCancelar.isEnabled) {
-                btnCancelar.isEnabled = false
-                operatorMessagePanel.show("Cancelando transação…")
-                controller?.abort()
+                confirmAndAbortTef()
             }
         }
 
@@ -168,6 +222,21 @@ class TefTransactionActivity : AppCompatActivity() {
             operator = operator,
             restrictions = ""
         )
+    }
+
+    /** Confirmação obrigatória na própria tela antes de abortar a rotina TEF. */
+    fun confirmAndAbortTef() {
+        if (isFinishing) return
+        if (!btnCancelar.isEnabled) return
+        if (panelCancelConfirm.visibility == View.VISIBLE) return
+
+        panelCancelConfirm.visibility = View.VISIBLE
+        panelCancelConfirm.bringToFront()
+        panelCancelConfirm.requestFocus()
+    }
+
+    private fun hideCancelConfirm() {
+        panelCancelConfirm.visibility = View.GONE
     }
 
     override fun onResume() {
@@ -196,11 +265,12 @@ class TefTransactionActivity : AppCompatActivity() {
 
     private fun showFatal(message: String) {
         tvStatus.text = message
-        findViewById<MaterialButton>(R.id.btnCancelarTef).setOnClickListener { finish() }
+        btnCancelar.setOnClickListener { finish() }
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     override fun onDestroy() {
+        hideCancelConfirm()
         controller?.release()
         controller = null
         super.onDestroy()
@@ -208,6 +278,7 @@ class TefTransactionActivity : AppCompatActivity() {
 
     companion object {
         private const val FINISH_DELAY_SUCCESS_MS = 1200L
+        private const val FINISH_DELAY_PENDING_SUCCESS_MS = 4500L
         private const val FINISH_DELAY_ERROR_MS = 2200L
 
         const val EXTRA_AMOUNT = "extra_tef_amount"
@@ -217,6 +288,10 @@ class TefTransactionActivity : AppCompatActivity() {
         const val EXTRA_SALE_ABASTECIMENTOS_JSON = "extra_sale_abastecimentos_json"
         const val EXTRA_SALE_CONTEXT_JSON = "extra_sale_context_json"
         const val EXTRA_TEF_RESULT_JSON = "extra_tef_result_json"
+        /** Mensagem de retorno (sucesso) para a Activity chamadora. */
+        const val EXTRA_TEF_MESSAGE = "extra_tef_message"
+        /** Resultado do Voltar: SalesActivity deve reabrir a tela TEF no menu de pagamento. */
+        const val EXTRA_TEF_REOPEN_PAYMENT = "extra_tef_reopen_payment"
 
         fun intent(
             context: android.content.Context,

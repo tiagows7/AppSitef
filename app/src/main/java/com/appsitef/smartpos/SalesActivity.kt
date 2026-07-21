@@ -22,6 +22,7 @@ import com.appsitef.smartpos.tef.TefTerminalTotalsStore
 import com.appsitef.smartpos.tef.TefTransactionResult
 import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
 import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
+import com.appsitef.smartpos.tef.CliSiTefConstants
 import com.appsitef.smartpos.tef.CliSiTefIHolder
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
 import com.appsitef.smartpos.tef.TefPreferences
@@ -51,8 +52,29 @@ class SalesActivity : AppCompatActivity() {
     private val tefSaleLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        val data = result.data
+        if (data?.getBooleanExtra(TefTransactionActivity.EXTRA_TEF_REOPEN_PAYMENT, false) == true) {
+            val amount = data.getStringExtra(TefTransactionActivity.EXTRA_AMOUNT)
+                ?.takeIf { it.isNotBlank() }
+                ?: salesViewModel.saleValue.value.orEmpty()
+            val operator = data.getStringExtra(TefTransactionActivity.EXTRA_OPERATOR)
+                ?: salesViewModel.saleOperator.value.orEmpty()
+            val functionId = data.getIntExtra(
+                TefTransactionActivity.EXTRA_FUNCTION,
+                CliSiTefConstants.FUNCTION_MENU,
+            )
+            if (amount.isNotBlank()) {
+                // Folga para o abort/liberate do fluxo anterior antes de reabrir.
+                viewPager.postDelayed({
+                    if (!isFinishing) {
+                        launchTefSale(amount, operator, functionId)
+                    }
+                }, TEF_REOPEN_DELAY_MS)
+            }
+            return@registerForActivityResult
+        }
         if (result.resultCode != RESULT_OK) return@registerForActivityResult
-        val tefResultJson = result.data?.getStringExtra(TefTransactionActivity.EXTRA_TEF_RESULT_JSON)
+        val tefResultJson = data?.getStringExtra(TefTransactionActivity.EXTRA_TEF_RESULT_JSON)
         salesViewModel.setLastTefTransactionResult(TefTransactionResult.fromJson(tefResultJson))
         recordApprovedSaleInTerminalTotals()
         salesViewModel.clearTransactionData()
@@ -291,5 +313,9 @@ class SalesActivity : AppCompatActivity() {
                 btnCancelarVenda.isEnabled = true
             }
         }
+    }
+
+    companion object {
+        private const val TEF_REOPEN_DELAY_MS = 500L
     }
 }

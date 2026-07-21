@@ -177,6 +177,7 @@ object TefPreferences {
             tlsTipoProxy = getTefTlsTipoProxy(context),
             tlsEnderecoProxy = getTefTlsEnderecoProxy(context),
             gsurfUid = getTefGsurfUid(context),
+            transacoesAdicionaisHabilitadas = getTefTransacoesHabilitadas(context),
         )
     }
     fun getOperator(context: Context): String = prefs(context).getString(KEY_OPERATOR, "0001") ?: "0001"
@@ -274,6 +275,7 @@ object TefPreferences {
                     tlsTipoProxy = terminal.tefTlsTipoProxy,
                     tlsEnderecoProxy = terminal.tefTlsEnderecoProxy,
                     gsurfUid = terminal.tefGsurfUid,
+                    transacoesAdicionaisHabilitadas = terminal.tefTransacoesHabilitadas,
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, terminal.tefObrigadoOperador)
@@ -400,6 +402,7 @@ object TefPreferences {
                     tlsTipoProxy = tef["TLSTIPOPROXY"].orEmpty(),
                     tlsEnderecoProxy = tef["TLSENDERECOPROXY"].orEmpty(),
                     gsurfUid = tef["GSURFUID"].orEmpty(),
+                    transacoesAdicionaisHabilitadas = tef["TRANSACAOHABILITADAS"].orEmpty(),
                 )
             )
             .putString(KEY_TEF_OBRIGADO_OPERADOR, tef["OBRIGADOOPERADOR"].orEmpty())

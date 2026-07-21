@@ -25,6 +25,13 @@ object TefClsitConfig {
     const val DEFAULT_TRANSACOES_ADICIONAIS_HABILITADAS =
         "16;26;27;28;30;40;43;56;57;58;60;61;70;71;72;130;3624;3625;3626;3627"
 
+    /**
+     * Lista fixa gravada em `[Geral] transacoesadicionaishabilitadas` do CLSIT.
+     * Substitui o envio dessa chave no `startTransaction` (agora lida do CLSIT).
+     */
+    const val CLSIT_GERAL_TRANSACOES_ADICIONAIS =
+        "7;8;9;14;16;17;26;27;28;123;3003;3020;3289;3240;3021;3022;3919;4179;130;3203;3624;3627"
+
     fun normalizeTransacoesHabilitadas(raw: String): String {
         if (raw.isBlank()) return ""
         return raw
@@ -36,13 +43,13 @@ object TefClsitConfig {
     }
 
     /**
-     * Delphi / m-SiTef — `TransacoesHabilitadas` no ParamAdic / `restricoes` da transação.
-     * Ex.: `TransacoesHabilitadas=16;26;27;30;111`
+     * Delphi / m-SiTef — `transacoesadicionaishabilitadas` no ParamAdic / `restricoes` da transação.
+     * Ex.: `transacoesadicionaishabilitadas=16;26;27;30;111`
      */
     fun buildTransacoesHabilitadasRestriction(transacoes: String): String {
         val normalized = normalizeTransacoesHabilitadas(transacoes)
         if (normalized.isBlank()) return ""
-        return "TransacoesHabilitadas=$normalized"
+        return "transacoesadicionaishabilitadas=$normalized"
     }
 
     fun buildNumeroTerminalParameter(terminalId: String): String {
@@ -81,7 +88,7 @@ object TefClsitConfig {
         val merged = when {
             explicit.isBlank() -> transacoesPart
             transacoesPart.isBlank() -> explicit
-            explicit.contains("TransacoesHabilitadas=", ignoreCase = true) -> explicit
+            explicit.contains("transacoesadicionaishabilitadas=", ignoreCase = true) -> explicit
             else -> "$explicit;$transacoesPart"
         }
         return mergeSitefParameters(merged, numeroTerminal)
@@ -156,6 +163,8 @@ object TefClsitConfig {
         tlsTipoProxy: String = "",
         tlsEnderecoProxy: String = "",
         gsurfUid: String = "",
+        /** Conteúdo de `tef_transacoes` / `TRANSACAOHABILITADAS` do modulo.ini. */
+        transacoesAdicionaisHabilitadas: String = "",
     ): String {
         val parts = mutableListOf<String>()
         val comExterna = tipoComunicacaoExterna.trim().ifBlank { "0" }
@@ -206,8 +215,44 @@ object TefClsitConfig {
             parts.add(parmsClient)
         }
 
+        val transacoes = normalizeTransacoesHabilitadas(transacoesAdicionaisHabilitadas)
+        if (transacoes.isNotBlank()) {
+            parts.add("TransacoesAdicionaisHabilitadas=$transacoes")
+        }
+
         val base = if (parts.isEmpty()) "" else "[${parts.joinToString(";")}]"
         return mergeSitefParameters(base, numeroTerminal)
+    }
+
+    /** Remove uma chave de uma seção INI (ex.: limpar legado do CLSIT). */
+    fun removeIniSectionKey(content: String, section: String, key: String): String {
+        val sectionHeader = "[$section]"
+        val keyPrefix = "$key="
+        val lines = content.lines().toMutableList()
+        var sectionStart = -1
+        var sectionEnd = lines.size
+
+        for (i in lines.indices) {
+            val trimmed = lines[i].trim()
+            if (trimmed.equals(sectionHeader, ignoreCase = true)) {
+                sectionStart = i
+                continue
+            }
+            if (sectionStart >= 0 && trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                sectionEnd = i
+                break
+            }
+        }
+        if (sectionStart < 0) return content
+
+        val toRemove = mutableListOf<Int>()
+        for (i in sectionStart + 1 until sectionEnd) {
+            if (lines[i].trim().startsWith(keyPrefix, ignoreCase = true)) {
+                toRemove.add(i)
+            }
+        }
+        toRemove.asReversed().forEach { lines.removeAt(it) }
+        return lines.joinToString("\n")
     }
     fun patchIniSectionValue(
         content: String,

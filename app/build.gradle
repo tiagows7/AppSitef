@@ -20,8 +20,8 @@ android {
         applicationId "com.appsitef.smartpos"
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.0.1"
 
         ndk {
             abiFilters "armeabi-v7a"
@@ -72,12 +72,24 @@ tasks.register("renameDebugApk") {
         def outDir = file("${buildDir}/outputs/apk/debug")
         def from = new File(outDir, "app-debug.apk")
         def to = new File(outDir, "siscom-pos-debug.apk")
-        if (from.exists()) {
-            if (to.exists()) {
-                to.delete()
-            }
-            from.renameTo(to)
+        if (!from.exists()) {
+            logger.warn("renameDebugApk: ${from.name} não encontrado")
+            return
         }
+        // Windows: File.renameTo pode falhar/deixar APK truncado; copiar é mais seguro.
+        to.parentFile?.mkdirs()
+        from.withInputStream { input ->
+            to.withOutputStream { output -> input.transferTo(output) }
+        }
+        if (to.length() != from.length() || to.length() < 1_000_000L) {
+            throw new GradleException(
+                "renameDebugApk: cópia inválida (${to.length()} bytes). Esperado ~${from.length()}."
+            )
+        }
+        if (!from.delete()) {
+            logger.warn("renameDebugApk: não removeu ${from.name}")
+        }
+        logger.lifecycle("renameDebugApk: ${to.name} (${to.length()} bytes)")
     }
 }
 

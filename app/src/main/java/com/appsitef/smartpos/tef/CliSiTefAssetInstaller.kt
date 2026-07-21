@@ -49,13 +49,19 @@ object CliSiTefAssetInstaller {
             key = "TransacoesHabilitadas",
             value = TefClsitConfig.normalizeTransacoesHabilitadas(transacoes),
         )
+        // transacoesadicionaishabilitadas vive no CLSIT [Geral] (não é mais enviado no
+        // startTransaction). Garante a linha também em instalações já existentes.
         content = TefClsitConfig.patchIniSectionValue(
             content = content,
             section = "Geral",
-            key = "TransacoesAdicionaisHabilitadas",
-            value = TefClsitConfig.mergeTransacoesAdicionaisHabilitadas(
-                TefClsitConfig.readIniSectionValue(content, "Geral", "TransacoesAdicionaisHabilitadas"),
-            ),
+            key = "transacoesadicionaishabilitadas",
+            value = TefClsitConfig.CLSIT_GERAL_TRANSACOES_ADICIONAIS,
+        )
+        content = TefClsitConfig.patchIniSectionValue(
+            content = content,
+            section = "Geral",
+            key = "TransacoesDesabilitadas",
+            value = "2",
         )
         content = TefClsitConfig.patchIniSectionValue(
             content = content,

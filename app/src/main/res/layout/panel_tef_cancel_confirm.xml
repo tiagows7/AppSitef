@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/panelTefCancelConfirm"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#99000000"
+    android:clickable="true"
+    android:elevation="40dp"
+    android:focusable="true"
+    android:translationZ="40dp"
+    android:visibility="gone">
+
+    <com.google.android.material.card.MaterialCardView
+        style="@style/Widget.AppSiTefSmartPos.Card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginHorizontal="24dp"
+        app:cardBackgroundColor="?attr/colorSurface">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="@string/tef_cancel_confirm_title"
+                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:text="@string/tef_cancel_confirm_message"
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTefCancelConfirmNo"
+                    style="@style/Widget.AppSiTefSmartPos.Button.Secondary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/tef_cancel_confirm_no" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnTefCancelConfirmYes"
+                    style="@style/Widget.AppSiTefSmartPos.Button.Primary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:text="@string/tef_cancel_confirm_yes" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</FrameLayout>

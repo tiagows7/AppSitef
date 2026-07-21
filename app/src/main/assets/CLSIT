@@ -25,7 +25,8 @@ TempoAdicionalEspera=10
 NomeArqTraducao=Mens.txt
 
 [Geral]
-TransacoesAdicionaisHabilitadas=16;26;27;28;30;40;43;56;57;58;60;61;70;71;72;130;3624;3625;3626;3627
+transacoesadicionaishabilitadas=7;8;9;14;16;17;26;27;28;123;3003;3020;3289;3240;3021;3022;3919;4179;130;3203;3624;3627;
+TransacoesDesabilitadas=2
 
 [RecargaCelular]
 HabilitaRecargaMultiConcessionaria=1
