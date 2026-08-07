@@ -125,12 +125,17 @@ object GertecReceiptPrinter {
         Thread.sleep(PRE_PRINT_DELAY_MS)
         waitForPrinterReady(printer)
 
+        // Homologação: o SiTef já manda SI/MU/LA/DO à esquerda + faixas ....S..I..M..U..L..A..D..O....
+        // Não remover nem reincrustar laterais — imprimir como veio (igual ao comprovante oficial).
+        val homologacao = TefPreferences.isSitefHomologacao(context)
+        val stripSimulado = !homologacao
+
         val formatted = TefReceiptFormatter.formatCupom(text)
         val lines = formatted
             .split("\n")
-            .flatMap { expandPrintableLines(it, FISCAL_MAX_LINE_CHARS) }
+            .flatMap { expandPrintableLines(it, FISCAL_MAX_LINE_CHARS, stripSimulado) }
 
-        Log.d(TAG, "printReceipt lines=${lines.size}")
+        Log.d(TAG, "printReceipt lines=${lines.size} homologacao=$homologacao stripSimulado=$stripSimulado")
         val config = buildStringConfig(FISCAL_TEXT_SIZE, FISCAL_LINE_SPACE)
         val batches = lines.chunked(LINES_PER_BATCH)
         batches.forEachIndexed { index, batch ->
@@ -246,12 +251,33 @@ object GertecReceiptPrinter {
         )
     }
 
-    private fun expandPrintableLines(raw: String, maxLineChars: Int = FISCAL_MAX_LINE_CHARS): List<String> {
-        val adjusted = TefReceiptFormatter.adjustLine(raw).ifBlank { " " }
+    private fun expandPrintableLines(
+        raw: String,
+        maxLineChars: Int = FISCAL_MAX_LINE_CHARS,
+        stripSimuladoPrefixes: Boolean = true,
+    ): List<String> {
+        // Faixas centrais do layout oficial de homologação: não quebrar/reformatar.
+        if (!stripSimuladoPrefixes &&
+            (TefReceiptFormatter.isSimuladoBannerLine(raw) ||
+                raw.contains("REIMPRESSAO", ignoreCase = true) ||
+                raw.contains("=========="))
+        ) {
+            return listOf(raw.trimEnd().ifBlank { " " })
+        }
+
+        val adjusted = TefReceiptFormatter.adjustLine(raw, stripSimuladoPrefixes).ifBlank { " " }
         if (adjusted.length <= maxLineChars) return listOf(adjusted)
 
         val lines = mutableListOf<String>()
         var remaining = adjusted
+        var isFirstWrapped = true
+        val simuladoPrefix = if (!stripSimuladoPrefixes &&
+            TefReceiptFormatter.startsWithSimuladoPrefix(adjusted)
+        ) {
+            adjusted.take(2)
+        } else {
+            null
+        }
         while (remaining.isNotEmpty()) {
             if (remaining.length <= maxLineChars) {
                 lines += remaining
@@ -262,6 +288,11 @@ object GertecReceiptPrinter {
             if (breakAt <= 0) breakAt = maxLineChars
             lines += remaining.substring(0, breakAt).trimEnd(',', ' ')
             remaining = remaining.substring(breakAt).trimStart(',', ' ')
+            // Continuação de linha longa: mantém indentação do prefixo SI/MU/LA/DO.
+            if (simuladoPrefix != null && !isFirstWrapped && remaining.isNotEmpty()) {
+                remaining = "  $remaining"
+            }
+            isFirstWrapped = false
         }
         return lines
     }

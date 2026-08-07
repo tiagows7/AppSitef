@@ -84,6 +84,17 @@ object TefPreferences {
     }
     fun getConnectionType(context: Context): String = prefs(context).getString(KEY_CONNECTION_TYPE, "WIFI") ?: "WIFI"
     fun getStoreId(context: Context): String = prefs(context).getString(KEY_STORE_ID, "") ?: ""
+
+    /**
+     * Ambiente de homologação / demonstração SiTef (código da loja `00000000`).
+     * Usado para marcar comprovantes impressos com laterais SIMULADO.
+     */
+    fun isSitefHomologacao(context: Context): Boolean {
+        loadModuloIniIfExists(context)
+        val storeId = getStoreId(context).filter { it.isDigit() }
+        return storeId.isNotEmpty() && storeId.all { it == '0' }
+    }
+
     fun getTerminalId(context: Context): String = prefs(context).getString(KEY_TERMINAL_ID, "") ?: ""
     fun getTefIp(context: Context): String {
         loadModuloIniIfExists(context)

@@ -4,27 +4,30 @@ import java.util.Locale
 
 object TefAmountFormatter {
 
+    private val ptBr = Locale("pt", "BR")
+
     /**
-     * Formato do GPOS Delphi (`GetValorTransacao`): centavos sem separador (ex.: R$ 1,50 → "150").
+     * Valor do [CliSiTef.startTransaction]: decimal com vírgula e 2 casas
+     * (ex.: R$ 1,50 → `"1,50"`).
      */
     fun toCliSiTefAmount(raw: String): String {
-        val normalized = raw.trim()
-            .replace(".", "")
-            .replace(",", ".")
-        val value = normalized.toDoubleOrNull() ?: 0.0
-        val cents = kotlin.math.round(value * 100).toLong()
+        val value = parseToDouble(raw)
+        return String.format(ptBr, "%.2f", value)
+    }
+
+    /** Valor digitado com máscara (`10,50`) → centavos SiTef (`1050`) em coletas de campo. */
+    fun toSitefCurrencyDigits(maskedValue: String): String {
+        val cents = kotlin.math.round(parseToDouble(maskedValue) * 100.0).toLong()
         return cents.toString()
     }
 
-    /** Valor digitado com máscara (`10,50`) → centavos SiTef (`1050`), como Delphi `GetValorTransacao`. */
-    fun toSitefCurrencyDigits(maskedValue: String): String = toCliSiTefAmount(maskedValue)
-
     /** Delphi `VALORVENDA` — decimal com vírgula (ex.: `10,50`). */
-    fun toCartaoMovimentoValor(raw: String): String {
+    fun toCartaoMovimentoValor(raw: String): String = toCliSiTefAmount(raw)
+
+    private fun parseToDouble(raw: String): Double {
         val normalized = raw.trim()
             .replace(".", "")
             .replace(",", ".")
-        val value = normalized.toDoubleOrNull() ?: 0.0
-        return String.format(Locale("pt", "BR"), "%.2f", value)
+        return normalized.toDoubleOrNull() ?: 0.0
     }
 }

@@ -689,6 +689,10 @@ class CliSiTefTransactionController(
                         recoverSaleToPreviousMenu(resultCode)
                     } else if (!settled.get()) {
                         val fallback = describeCancelResult(resultCode)
+                        // Troca "Digite a senha" imediatamente; o finalize encerra a sessão.
+                        if (!goingBackToPreviousMenu.get()) {
+                            showOperatorMessage(fallback)
+                        }
                         finalizeInteractiveFunction(
                             reason = "stage1:$resultCode",
                             fallbackMessage = fallback
@@ -732,6 +736,12 @@ class CliSiTefTransactionController(
         minLength: Int,
         maxLength: Int
     ) {
+        // Cancelamento no pinpad: a msg "Operação cancelada" pode chegar ANTES do
+        // onTransactionResult. Marcamos abort cedo para não abrir senha do supervisor.
+        if (isPinpadCancelMessage(buffer)) {
+            markAbortFromPinpadCancel(buffer)
+        }
+
         when (command) {
             CliSiTef.CMD_RESULT_DATA,
             CliSiTef.CMD_GET_FIELD_INTERNAL -> {
@@ -743,11 +753,22 @@ class CliSiTefTransactionController(
 
             CliSiTef.CMD_SHOW_MSG_CASHIER,
             CliSiTef.CMD_SHOW_MSG_CASHIER_CUSTOMER -> {
+                if (shouldSuppressInteractivePrompts() && isPasswordEntryPrompt(buffer)) {
+                    // Após cancelar no pinpad, o SiTef ainda pode reenviar "Digite a senha".
+                    appendStatus(buffer)
+                    continueWith("")
+                    return
+                }
                 showOperatorMessage(buffer)
                 continueWith("")
             }
 
             CliSiTef.CMD_SHOW_MSG_CUSTOMER -> {
+                if (shouldSuppressInteractivePrompts() && isPasswordEntryPrompt(buffer)) {
+                    appendStatus("Cliente: $buffer")
+                    continueWith("")
+                    return
+                }
                 if (buffer.isNotBlank()) {
                     appendStatus("Cliente: $buffer")
                     // Pinpad virtual muitas vezes só manda a msg no cliente: esconder Voltar.
@@ -770,7 +791,10 @@ class CliSiTefTransactionController(
 
             CliSiTef.CMD_CLEAR_MSG_CASHIER,
             CliSiTef.CMD_CLEAR_MSG_CASHIER_CUSTOMER -> {
-                clearOperatorMessage()
+                // Em cancelamento, não voltar para "aguardando" apagando "Operação cancelada".
+                if (!shouldSuppressInteractivePrompts()) {
+                    clearOperatorMessage()
+                }
                 continueWith("")
             }
 
@@ -780,7 +804,7 @@ class CliSiTefTransactionController(
 
             CliSiTef.CMD_CONFIRMATION,
             CliSiTef.CMD_CONFIRM_GO_BACK -> {
-                if (shouldAutoContinueDuringFinalize() || goingBackToPreviousMenu.get()) {
+                if (shouldSuppressInteractivePrompts()) {
                     if (buffer.isNotBlank()) appendStatus(buffer)
                     continueWith("0")
                     return
@@ -792,7 +816,7 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_GET_MENU_OPTION -> {
-                if (shouldAutoContinueDuringFinalize()) {
+                if (shouldSuppressInteractivePrompts()) {
                     val firstOption = parseMenuOptions(buffer).firstOrNull()?.code ?: "1"
                     continueWith(firstOption)
                     return
@@ -801,6 +825,11 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_GET_PINPAD_CONFIRMATION -> {
+                if (shouldSuppressInteractivePrompts()) {
+                    dismissActiveDialog()
+                    continueWith("")
+                    return
+                }
                 val prompt = buffer.ifBlank { lastOperatorPrompt }
                 showOperatorMessage(prompt)
                 if (shouldInterceptSupervisorPassword(command, prompt)) {
@@ -811,7 +840,7 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_GET_FIELD_CURRENCY -> {
-                if (shouldAutoContinueDuringFinalize() || goingBackToPreviousMenu.get()) {
+                if (shouldSuppressInteractivePrompts()) {
                     continueWith("")
                     return
                 }
@@ -826,7 +855,8 @@ class CliSiTefTransactionController(
             CliSiTef.CMD_GET_FIELD_CHEQUE,
             CliSiTef.CMD_GET_FIELD_TRACK,
             CliSiTef.CMD_GET_FIELD_PASSWORD -> {
-                if (shouldAutoContinueDuringFinalize() || goingBackToPreviousMenu.get()) {
+                if (shouldSuppressInteractivePrompts()) {
+                    dismissActiveDialog()
                     continueWith("")
                     return
                 }
@@ -844,7 +874,7 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_PRESS_ANY_KEY -> {
-                if (shouldAutoContinueDuringFinalize() || goingBackToPreviousMenu.get()) {
+                if (shouldSuppressInteractivePrompts()) {
                     if (buffer.isNotBlank()) appendStatus(buffer)
                     continueWith("0")
                     return
@@ -856,7 +886,7 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_ABORT_REQUEST -> {
-                showOperatorMessage(buffer)
+                markAbortFromPinpadCancel(buffer.ifBlank { "Operação cancelada." })
                 continueWith("")
             }
 
@@ -886,7 +916,7 @@ class CliSiTefTransactionController(
                 if (buffer.isNotBlank()) {
                     captureParcelas(buffer)
                 }
-                if (shouldAutoContinueDuringFinalize()) {
+                if (shouldSuppressInteractivePrompts()) {
                     continueWith(transactionResult.parcelas.ifBlank { "1" })
                     return
                 }
@@ -938,7 +968,9 @@ class CliSiTefTransactionController(
         if (!menuDialogOpen.compareAndSet(false, true)) return
 
         val raw = menuBuffer.ifBlank { cliSiTef.buffer.orEmpty() }
-        val options = parseMenuOptions(raw)
+        // CLSIT TransacoesDesabilitadas=2 (cheque): o host ainda pode enviar a
+        // opção no menu — ocultamos na venda (não no admin).
+        val options = filterDisabledPaymentOptions(parseMenuOptions(raw))
         appendStatus("Menu SiTef recebido")
 
         if (options.isEmpty()) {
@@ -1096,6 +1128,21 @@ class CliSiTefTransactionController(
         return asksCardAction && mentionsCard
     }
 
+    /**
+     * Remove meios desabilitados no CLSIT ([Geral] TransacoesDesabilitadas=2 = cheque)
+     * do menu de pagamento da venda. Identifica pelo rótulo (o código do item no
+     * menu SiTef não é a mesma função 2).
+     */
+    private fun filterDisabledPaymentOptions(options: List<MenuOption>): List<MenuOption> {
+        if (operationMode != TefOperationMode.SALE) return options
+        return options.filterNot { isChequePaymentMenuOption(it.label) }
+    }
+
+    private fun isChequePaymentMenuOption(label: String): Boolean {
+        val normalized = normalizeTefText(label)
+        return normalized.contains("cheque")
+    }
+
     private fun isNonCardPaymentMenuOption(label: String): Boolean {
         val normalized = normalizeTefText(label)
         return normalized.contains("pix") ||
@@ -1106,7 +1153,7 @@ class CliSiTefTransactionController(
             normalized.contains("vale-") ||
             normalized.contains("vale ") ||
             normalized.contains("dinheiro") ||
-            normalized.contains("cheque")
+            isChequePaymentMenuOption(label)
     }
 
     /** Opções de débito/crédito que seguem para leitura do cartão. */
@@ -1219,6 +1266,14 @@ class CliSiTefTransactionController(
         minLength: Int,
         maxLength: Int,
     ) {
+        if (shouldSuppressInteractivePrompts()) {
+            Log.d(TAG, "senha supervisor ignorada — cancelamento/encerramento em curso")
+            dismissActiveDialog()
+            supervisorPasswordPending = false
+            supervisorPasswordMinLength = 0
+            continueWith("")
+            return
+        }
         val message = prompt.ifBlank { lastOperatorPrompt }.ifBlank {
             activity.getString(R.string.tef_supervisor_password_prompt)
         }
@@ -1335,10 +1390,21 @@ class CliSiTefTransactionController(
     private fun continueWith(data: String) {
         dispatchOnMain {
             if (!running.get() || activity.isFinishing) return@dispatchOnMain
+            // Já encerrado (ex.: cancelado no pinpad) — não reabrir senha do supervisor.
+            if (settled.get()) {
+                supervisorPasswordPending = false
+                supervisorPasswordMinLength = 0
+                return@dispatchOnMain
+            }
 
             var payload = data
             if (supervisorPasswordPending && payload.isNotBlank()) {
                 if (!TefSupervisorPassword.isValid(payload)) {
+                    if (shouldSuppressInteractivePrompts()) {
+                        supervisorPasswordPending = false
+                        supervisorPasswordMinLength = 0
+                        return@dispatchOnMain
+                    }
                     Toast.makeText(
                         activity,
                         activity.getString(R.string.tef_supervisor_password_invalid),
@@ -1408,6 +1474,68 @@ class CliSiTefTransactionController(
     private fun shouldAutoContinueDuringFinalize(): Boolean =
         abortRequested.get() || awaitingCancelFinish || confirmingPendingAfterSuccess
 
+    /**
+     * Bloqueia menu/senha/confirmação na UI após cancelamento no pinpad ou sessão
+     * já encerrada (senão a senha do supervisor sobe depois de "Operação cancelada").
+     */
+    private fun shouldSuppressInteractivePrompts(): Boolean =
+        settled.get() ||
+            shouldAutoContinueDuringFinalize() ||
+            goingBackToPreviousMenu.get()
+
+    private fun isPinpadCancelMessage(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return normalized.contains("operacao cancelada") ||
+            normalized.contains("operacao cancelada.") ||
+            normalized.contains("cancelado no pinpad") ||
+            normalized.contains("transacao cancelada") ||
+            (normalized.contains("cancelad") &&
+                (normalized.contains("operacao") || normalized.contains("transacao")))
+    }
+
+    private fun isPasswordEntryPrompt(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return normalized.contains("senha") ||
+            normalized.contains("digite o pin") ||
+            normalized.contains("informe o pin") ||
+            normalized.contains("pin do cart")
+    }
+
+    /**
+     * Cancelamento no pinpad: limpa "Digite a senha", força abort da lib e agenda
+     * fallback se o estágio 1 demorar (senão a tela fica presa na mensagem de senha).
+     */
+    private fun markAbortFromPinpadCancel(message: String) {
+        if (settled.get() || transactionApproved) return
+        supervisorPasswordPending = false
+        supervisorPasswordMinLength = 0
+        dismissActiveDialog()
+        hideInlineMenuOptions()
+        setBackButtonVisible(false)
+        awaitingCardPresentment.set(false)
+        onHidePixQrCode()
+
+        val status = when {
+            isPinpadCancelMessage(message) -> message.trim()
+            else -> "Operação cancelada."
+        }
+        showOperatorMessage(status.ifBlank { "Operação cancelada." })
+
+        val firstMark = abortRequested.compareAndSet(false, true)
+        Log.d(TAG, "abort pinpad first=$firstMark msg=${message.take(80)}")
+        if (!firstMark) return
+
+        try {
+            cliSiTef.setActivity(activity)
+            val result = cliSiTef.abortTransaction(-1)
+            Log.d(TAG, "abortTransaction(-1) from pinpad cancel=$result")
+        } catch (error: Throwable) {
+            Log.w(TAG, "abortTransaction from pinpad cancel", error)
+        }
+        scheduleAbortFallback()
+    }
     /**
      * Garante CliSiTef livre antes de nova venda. O erro -12 no configure pode ocorrer
      * mesmo com [getQttPendingTransactions] = 0 (processo iterativo não encerrado).
@@ -2928,7 +3056,7 @@ class CliSiTefTransactionController(
             RestJsonParser.parseDecimalString(fromField146).takeIf { it > 0.0 }?.let { return it }
         }
 
-        val fromSale = TefAmountFormatter.toCliSiTefAmount(saleAmount).toLongOrNull() ?: 0L
+        val fromSale = TefAmountFormatter.toSitefCurrencyDigits(saleAmount).toLongOrNull() ?: 0L
         if (fromSale > 0L) return fromSale / 100.0
 
         val receiptText = when {
@@ -3207,6 +3335,8 @@ class CliSiTefTransactionController(
             return
         }
         if (!settled.compareAndSet(false, true)) return
+        supervisorPasswordPending = false
+        supervisorPasswordMinLength = 0
         cancelAbortFallback()
         cancelReceiptFinalize()
         cancelPendingConfirmWatchdog()
