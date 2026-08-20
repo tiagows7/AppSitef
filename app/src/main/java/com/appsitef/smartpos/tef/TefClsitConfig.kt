@@ -30,7 +30,7 @@ object TefClsitConfig {
      * Substitui o envio dessa chave no `startTransaction` (agora lida do CLSIT).
      */
     const val CLSIT_GERAL_TRANSACOES_ADICIONAIS =
-        "7;8;9;14;16;17;26;27;28;123;3003;3020;3289;3240;3021;3022;3919;4179;130;3203;3624;3627"
+        "7;8;9;14;16;17;26;27;28;123;3003;3006;3020;3289;3240;3021;3022;3919;4179;130;3203;3624;3627"
 
     fun normalizeTransacoesHabilitadas(raw: String): String {
         if (raw.isBlank()) return ""
@@ -58,13 +58,19 @@ object TefClsitConfig {
         return "NUMEROTERMINAL=$trimmed"
     }
 
+    /**
+     * Parâmetros adicionais do `configure` — sempre entre colchetes.
+     * Ex.: `[TipoComunicacaoExterna=2;NUMEROTERMINAL=POS00001]`
+     */
     fun mergeSitefParameters(base: String, terminalId: String): String {
         val numeroTerminal = buildNumeroTerminalParameter(terminalId)
-        if (numeroTerminal.isBlank()) return base.trim()
+        if (numeroTerminal.isBlank()) return ensureConfigureParamsBrackets(base.trim())
 
         val trimmedBase = base.trim()
-        if (trimmedBase.isBlank()) return numeroTerminal
-        if (trimmedBase.contains("NUMEROTERMINAL=", ignoreCase = true)) return trimmedBase
+        if (trimmedBase.isBlank()) return "[$numeroTerminal]"
+        if (trimmedBase.contains("NUMEROTERMINAL=", ignoreCase = true)) {
+            return ensureConfigureParamsBrackets(trimmedBase)
+        }
 
         if (trimmedBase.startsWith("[") && trimmedBase.endsWith("]")) {
             val inner = trimmedBase.substring(1, trimmedBase.length - 1).trim().trimEnd(';')
@@ -75,23 +81,51 @@ object TefClsitConfig {
             }
         }
 
-        return "$trimmedBase;$numeroTerminal"
+        return "[$trimmedBase;$numeroTerminal]"
+    }
+
+    /** CliSiTef exige parâmetros adicionais do configure entre colchetes. */
+    fun ensureConfigureParamsBrackets(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return ""
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) return trimmed
+        return "[$trimmed]"
+    }
+
+    /**
+     * Campo `restricoes` do `startTransaction` — **sem** colchetes e **sem**
+     * `NUMEROTERMINAL` (esse vai só no configure). Colchetes geram
+     * "campo restricoes invalido ...numeroterminal=...]"
+     */
+    fun normalizeTransactionRestrictions(explicitRestrictions: String): String {
+        val trimmed = explicitRestrictions.trim()
+        if (trimmed.isBlank()) return ""
+        val inner = if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            trimmed.substring(1, trimmed.length - 1).trim().trimEnd(';')
+        } else {
+            trimmed.trimEnd(';')
+        }
+        if (inner.isBlank()) return ""
+        return inner
+            .split(';')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("NUMEROTERMINAL=", ignoreCase = true) }
+            .joinToString(";")
     }
 
     fun mergeStartTransactionParameters(
         explicitRestrictions: String,
         transacoesHabilitadas: String,
-        numeroTerminal: String = "",
+        @Suppress("UNUSED_PARAMETER") numeroTerminal: String = "",
     ): String {
         val transacoesPart = buildTransacoesHabilitadasRestriction(transacoesHabilitadas)
-        val explicit = explicitRestrictions.trim()
-        val merged = when {
+        val explicit = normalizeTransactionRestrictions(explicitRestrictions)
+        return when {
             explicit.isBlank() -> transacoesPart
             transacoesPart.isBlank() -> explicit
             explicit.contains("transacoesadicionaishabilitadas=", ignoreCase = true) -> explicit
             else -> "$explicit;$transacoesPart"
         }
-        return mergeSitefParameters(merged, numeroTerminal)
     }
 
     fun ensureMandatoryAdminTransacoes(raw: String): String {
@@ -171,9 +205,9 @@ object TefClsitConfig {
 
         when (comExterna) {
             "1" -> {
-                tlsExterna.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("TipoComunicacaoExterna=$it")
-                }
+                // Sempre inicia com TipoComunicacaoExterna (TLS externa ou COMEXTERNA).
+                val tipo = tlsExterna.trim().ifBlank { comExterna }
+                parts.add("TipoComunicacaoExterna=$tipo")
                 otp.trim().takeIf { it.isNotEmpty() }?.let {
                     parts.add("GSurf.OTP=$it")
                 }
@@ -182,9 +216,8 @@ object TefClsitConfig {
                 }
             }
             "2" -> {
-                tlsExterna.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("TipoComunicacaoExterna=$it")
-                }
+                val tipo = tlsExterna.trim().ifBlank { comExterna }
+                parts.add("TipoComunicacaoExterna=$tipo")
                 tlsToken.trim().takeIf { it.isNotEmpty() }?.let {
                     parts.add("TokenRegistro=$it")
                 }
@@ -220,7 +253,8 @@ object TefClsitConfig {
             parts.add("TransacoesAdicionaisHabilitadas=$transacoes")
         }
 
-        val base = if (parts.isEmpty()) "" else "[${parts.joinToString(";")}]"
+        // Formato CliSiTef: [TipoComunicacaoExterna=...;ParmsClient=...;NUMEROTERMINAL=...]
+        val base = if (parts.isEmpty()) "" else parts.joinToString(";")
         return mergeSitefParameters(base, numeroTerminal)
     }
 

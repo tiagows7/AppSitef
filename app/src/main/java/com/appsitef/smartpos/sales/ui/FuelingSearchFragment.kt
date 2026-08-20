@@ -28,6 +28,8 @@ class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
     private val salesViewModel: SalesViewModel by activityViewModels()
     private val repository by lazy { AbastecimentoRemoteRepository(requireContext()) }
     private lateinit var adapter: AbastecimentoAdapter
+    /** Clique na lista até concluir registro/liberação no servidor. */
+    private var fuelingSelectionBusy = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -74,6 +76,14 @@ class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
 
         btnPesquisar.setOnClickListener {
             KeyboardUtils.hide(this)
+            if (hasAbastecimentoSelecionado()) {
+                Toast.makeText(
+                    requireContext(),
+                    R.string.error_fueling_already_selected,
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
             val bico = etBico.text.toString().trim()
 
             lifecycleScope.launch {
@@ -126,6 +136,13 @@ class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
         }
     }
 
+    private fun hasAbastecimentoSelecionado(): Boolean {
+        if (fuelingSelectionBusy) return true
+        if (salesViewModel.selectedAbastecimentos.value.orEmpty().isNotEmpty()) return true
+        if (salesViewModel.saleAbastecimentos.value.orEmpty().isNotEmpty()) return true
+        return ::adapter.isInitialized && adapter.getSelectedItems().isNotEmpty()
+    }
+
     private fun syncAdapterSelectionFromViewModel() {
         if (!::adapter.isInitialized) return
 
@@ -166,6 +183,7 @@ class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
         action: () -> Unit,
     ) {
         lifecycleScope.launch {
+            fuelingSelectionBusy = true
             adapter.setInteractionLocked(true)
             val waitDialog = WaitDialog.show(requireContext(), messageRes)
             try {
@@ -180,6 +198,7 @@ class FuelingSearchFragment : Fragment(R.layout.fragment_fueling_search) {
             } finally {
                 waitDialog.dismiss()
                 adapter.setInteractionLocked(false)
+                fuelingSelectionBusy = false
             }
         }
     }

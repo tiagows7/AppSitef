@@ -5,11 +5,21 @@ import android.content.Context
 object AbastecimentoUrlBuilder {
 
     private const val PATH = "/datasnap/rest/TsmAbastecimentos/abastecimentos"
-    private const val PATH_WITH_SLASH = "$PATH/"
 
-    fun buildAbastecimentosUrl(context: Context, bico: String): String {
+    /**
+     * GET Delphi: `Execute(..., 'abastecimentos', LParams, rmGET)` com
+     * `bomba` + `operador` em segmentos → `.../abastecimentos/{bico}/{operador}/`
+     *
+     * Só um segmento gera HTTP 300 (ambíguo entre Abastecimentos e AcceptAbastecimentos).
+     */
+    fun buildAbastecimentosUrl(
+        context: Context,
+        bico: String,
+        operador: String = "",
+    ): String {
         val bicoSegment = formatBicoForUrl(bico)
-        return "${buildBaseUrl(context)}$PATH_WITH_SLASH$bicoSegment"
+        val operadorSegment = operador.trim()
+        return "${buildBaseUrl(context)}$PATH/$bicoSegment/$operadorSegment/"
     }
 
     /**
@@ -30,8 +40,8 @@ object AbastecimentoUrlBuilder {
     private fun buildBaseUrl(context: Context): String = DatasnapRestUrlBuilder.buildBaseUrl(context)
 
     /**
-     * Bico informado: envia com 2 dígitos (ex.: 1 -> 01, 2 -> 02, 12 -> 12).
-     * Bico em branco: segmento vazio no final da URL.
+     * Bico informado: 2 dígitos (ex.: 1 -> 01, 12 -> 12).
+     * Bico em branco: segmento vazio (lista geral) — o operador ainda vai depois.
      */
     fun formatBicoForUrl(bico: String): String {
         val digits = bico.trim().filter { it.isDigit() }

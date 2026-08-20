@@ -15,8 +15,9 @@ class AbastecimentoRemoteRepository(
 
     private val client = OkHttpClient.Builder().build()
 
-    fun buscarAbastecimentos(bico: String): List<Abastecimento> {
-        val url = AbastecimentoUrlBuilder.buildAbastecimentosUrl(context, bico)
+    fun buscarAbastecimentos(bico: String, operador: String = ""): List<Abastecimento> {
+        val url = AbastecimentoUrlBuilder.buildAbastecimentosUrl(context, bico, operador)
+        Log.d(TAG, "GET abastecimentos url=$url")
         val request = Request.Builder()
             .url(url)
             .header("Authorization", Credentials.basic(BASIC_USER, BASIC_PASSWORD))
@@ -25,7 +26,11 @@ class AbastecimentoRemoteRepository(
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
-                error("HTTP ${response.code} ao consultar abastecimentos.")
+                val body = response.body?.string().orEmpty()
+                error(
+                    "HTTP ${response.code} ao consultar abastecimentos." +
+                        if (body.isBlank()) "" else " $body"
+                )
             }
             val body = response.body?.string()?.trim().orEmpty()
             if (body.isBlank()) return emptyList()

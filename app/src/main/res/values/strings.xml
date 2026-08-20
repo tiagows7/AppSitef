@@ -6,6 +6,7 @@
     <string name="wait_message_searching_fueling">Pesquisando abastecimentos…</string>
     <string name="wait_message_registering_fueling">Registrando abastecimento…</string>
     <string name="wait_message_releasing_fueling">Liberando abastecimento…</string>
+    <string name="error_fueling_already_selected">Abastecimento já selecionado. Cancele antes de uma nova consulta.</string>
     <string name="wait_message_searching_customer">Pesquisando cliente…</string>
     <string name="wait_message_searching_cnpj">Consultando CNPJ…</string>
     <string name="customer_consult_cnpj_button">Consultar</string>
@@ -127,4 +128,5 @@
     <string name="tef_supervisor_password_prompt">Informe a senha do supervisor</string>
     <string name="tef_supervisor_password_invalid">Senha do supervisor inválida.</string>
     <string name="tef_supervisor_password_confirm">Confirmar</string>
+    <string name="tef_transaction_result_title">Resultado da transação</string>
 </resources>

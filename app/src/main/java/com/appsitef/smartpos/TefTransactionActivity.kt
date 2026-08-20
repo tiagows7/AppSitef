@@ -6,6 +6,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import br.com.softwareexpress.sitef.android.CliSiTef
 import com.appsitef.smartpos.sales.AbastecimentoIntentSerializer
@@ -162,24 +163,35 @@ class TefTransactionActivity : AppCompatActivity() {
                 btnVoltar.visibility = View.GONE
                 btnVoltar.isEnabled = false
                 appendStatus(message)
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                btnCancelar.isEnabled = false
                 if (success) {
                     lastTefResultJson = result?.toJson()
                     setResult(RESULT_OK, android.content.Intent().apply {
                         putExtra(EXTRA_TEF_RESULT_JSON, lastTefResultJson)
                         putExtra(EXTRA_TEF_MESSAGE, message)
                     })
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    val delay = when (operationMode) {
+                        TefOperationMode.ADMIN_PENDING -> FINISH_DELAY_PENDING_SUCCESS_MS
+                        else -> FINISH_DELAY_SUCCESS_MS
+                    }
+                    btnCancelar.postDelayed({ finish() }, delay)
                 } else {
-                    setResult(RESULT_CANCELED)
+                    // Negação / erro: diálogo só com OK para o operador ler o retorno.
+                    setResult(
+                        RESULT_CANCELED,
+                        android.content.Intent().apply {
+                            putExtra(EXTRA_TEF_MESSAGE, message)
+                        },
+                    )
+                    operatorMessagePanel.show(message)
+                    AlertDialog.Builder(this)
+                        .setTitle(R.string.tef_transaction_result_title)
+                        .setMessage(message)
+                        .setCancelable(false)
+                        .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+                        .show()
                 }
-                btnCancelar.isEnabled = false
-                val delay = when {
-                    !success -> FINISH_DELAY_ERROR_MS
-                    operationMode == TefOperationMode.ADMIN_PENDING ->
-                        FINISH_DELAY_PENDING_SUCCESS_MS
-                    else -> FINISH_DELAY_SUCCESS_MS
-                }
-                btnCancelar.postDelayed({ finish() }, delay)
             },
             onReopenPaymentMenu = {
                 hideCancelConfirm()

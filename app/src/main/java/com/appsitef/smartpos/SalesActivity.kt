@@ -73,7 +73,16 @@ class SalesActivity : AppCompatActivity() {
             }
             return@registerForActivityResult
         }
-        if (result.resultCode != RESULT_OK) return@registerForActivityResult
+        if (result.resultCode != RESULT_OK) {
+            // Negação / cancelamento: mantém o movimento aberto e exibe a mensagem do SiTef.
+            val tefMessage = data?.getStringExtra(TefTransactionActivity.EXTRA_TEF_MESSAGE)
+                ?.trim()
+                .orEmpty()
+            if (tefMessage.isNotBlank()) {
+                Toast.makeText(this, tefMessage, Toast.LENGTH_LONG).show()
+            }
+            return@registerForActivityResult
+        }
         val tefResultJson = data?.getStringExtra(TefTransactionActivity.EXTRA_TEF_RESULT_JSON)
         salesViewModel.setLastTefTransactionResult(TefTransactionResult.fromJson(tefResultJson))
         recordApprovedSaleInTerminalTotals()

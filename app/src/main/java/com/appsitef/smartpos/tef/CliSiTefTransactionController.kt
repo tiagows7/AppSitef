@@ -62,6 +62,13 @@ class CliSiTefTransactionController(
     private val menuDialogOpen = AtomicBoolean(false)
     private var pendingMenuTitle: String? = null
     private var lastOperatorPrompt: String = ""
+    /**
+     * Última mensagem “útil” do SiTef (negação / código de resposta do emissor).
+     * Não sobrescrever com “Operação cancelada” genérico no stage1.
+     */
+    private var lastMeaningfulSitefMessage: String = ""
+    /** Após "Erro de simulação" / negação: não pedir Confirmar/Cancelar nem senha supervisor. */
+    private val denialFlowActive = AtomicBoolean(false)
     private var supervisorPasswordPending = false
     private var supervisorPasswordMinLength = 0
     /** Após escolher opção de menu na venda, permite Voltar (Continua=1 / reabrir menu). */
@@ -180,6 +187,8 @@ class CliSiTefTransactionController(
         saleReversedForPrintFailure = false
         pendingTransactionsWereResolved = false
         lastOperatorPrompt = ""
+        lastMeaningfulSitefMessage = ""
+        denialFlowActive.set(false)
         supervisorPasswordPending = false
         supervisorPasswordMinLength = 0
         // Mantém goingBackToPreviousMenu se estivermos reabrindo após Voltar (suprimir diálogos).
@@ -236,9 +245,8 @@ class CliSiTefTransactionController(
         taxInvoiceTime = SimpleDateFormat("HHmmss", Locale.US).format(now)
         taxInvoiceNumber = TefPendingFiscal.nextCoupon(activity)
         val transactionParameters = buildStartTransactionParameters(restrictions)
-        additionalParameters = transactionParameters.ifBlank {
-            TefPreferences.getSitefConfigureAdditionalParams(activity)
-        }
+        // finishTransaction usa params do configure (com colchetes), não as restrições.
+        additionalParameters = TefPreferences.getSitefConfigureAdditionalParams(activity)
 
         ensureCliSiTefReady {
             configureAndStart(functionId, amount, operator, transactionParameters)
@@ -678,6 +686,7 @@ class CliSiTefTransactionController(
                     } else if (resultCode == 0) {
                         awaitingCancelFinish = false
                         goingBackToPreviousMenu.set(false)
+                        denialFlowActive.set(false)
                         transactionApproved = true
                         // Estágio 1: finishTransaction para obter o comprovante (o pagamento
                         // permanece pendente). A confirmação/estorno definitivo acontece no
@@ -688,14 +697,18 @@ class CliSiTefTransactionController(
                         cancelGoBackFailsafe()
                         recoverSaleToPreviousMenu(resultCode)
                     } else if (!settled.get()) {
-                        val fallback = describeCancelResult(resultCode)
-                        // Troca "Digite a senha" imediatamente; o finalize encerra a sessão.
+                        val fallback = resolveStage1FailureMessage(resultCode)
+                        // Painel: se já pediu "Retire o cartão", manter; a negação vai no OK.
                         if (!goingBackToPreviousMenu.get()) {
-                            showOperatorMessage(fallback)
+                            if (isRemoveCardPrompt(lastOperatorPrompt)) {
+                                appendStatus(fallback)
+                            } else {
+                                showOperatorMessage(fallback)
+                            }
                         }
                         finalizeInteractiveFunction(
                             reason = "stage1:$resultCode",
-                            fallbackMessage = fallback
+                            fallbackMessage = resolveFinishErrorMessage(fallback)
                         )
                     }
                 }
@@ -759,7 +772,14 @@ class CliSiTefTransactionController(
                     continueWith("")
                     return
                 }
-                showOperatorMessage(buffer)
+                noteDenialIfPresent(buffer)
+                // Genéricos de cancelamento não sobrescrevem a negação no painel.
+                // "Retire o cartão" aparece normalmente (cartão ainda inserido).
+                if (shouldHoldDenialOperatorMessage(buffer)) {
+                    appendStatus(buffer)
+                } else {
+                    showOperatorMessage(buffer)
+                }
                 continueWith("")
             }
 
@@ -771,12 +791,21 @@ class CliSiTefTransactionController(
                 }
                 if (buffer.isNotBlank()) {
                     appendStatus("Cliente: $buffer")
-                    // Pinpad virtual muitas vezes só manda a msg no cliente: esconder Voltar.
-                    if (isCardPresentmentPrompt(buffer)) {
-                        lastOperatorPrompt = buffer.trim()
-                        awaitingCardPresentment.set(true)
-                        setBackButtonVisible(false)
-                        onOperatorMessage(buffer)
+                    noteDenialIfPresent(buffer)
+                    when {
+                        isDenialMessage(buffer) -> showOperatorMessage(buffer)
+                        shouldHoldDenialOperatorMessage(buffer) -> {
+                            // Só status — painel mantém a negação / retire.
+                        }
+                        isRemoveCardPrompt(buffer) || isCardPresentmentPrompt(buffer) -> {
+                            // Exibe no painel sem gravar como motivo da negação.
+                            lastOperatorPrompt = buffer.trim()
+                            if (isCardPresentmentPrompt(buffer) && !abortRequested.get()) {
+                                awaitingCardPresentment.set(true)
+                                setBackButtonVisible(false)
+                            }
+                            onOperatorMessage(buffer)
+                        }
                     }
                 }
                 continueWith("")
@@ -804,6 +833,15 @@ class CliSiTefTransactionController(
 
             CliSiTef.CMD_CONFIRMATION,
             CliSiTef.CMD_CONFIRM_GO_BACK -> {
+                if (shouldAutoAckDenialPrompts()) {
+                    val prompt = buffer.ifBlank { lastMeaningfulSitefMessage }
+                    if (prompt.isNotBlank()) {
+                        rememberMeaningfulSitefMessage(prompt)
+                        showOperatorMessage(prompt)
+                    }
+                    continueWith("0")
+                    return
+                }
                 if (shouldSuppressInteractivePrompts()) {
                     if (buffer.isNotBlank()) appendStatus(buffer)
                     continueWith("0")
@@ -825,7 +863,7 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_GET_PINPAD_CONFIRMATION -> {
-                if (shouldSuppressInteractivePrompts()) {
+                if (shouldAutoAckDenialPrompts() || shouldSuppressInteractivePrompts()) {
                     dismissActiveDialog()
                     continueWith("")
                     return
@@ -855,8 +893,11 @@ class CliSiTefTransactionController(
             CliSiTef.CMD_GET_FIELD_CHEQUE,
             CliSiTef.CMD_GET_FIELD_TRACK,
             CliSiTef.CMD_GET_FIELD_PASSWORD -> {
-                if (shouldSuppressInteractivePrompts()) {
+                // Após "Erro de simulação 04" o SiTef ainda pode pedir campo/senha —
+                // isso abria o diálogo Confirmar/Cancelar da senha do supervisor.
+                if (shouldAutoAckDenialPrompts() || shouldSuppressInteractivePrompts()) {
                     dismissActiveDialog()
+                    supervisorPasswordPending = false
                     continueWith("")
                     return
                 }
@@ -874,6 +915,15 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_PRESS_ANY_KEY -> {
+                if (shouldAutoAckDenialPrompts()) {
+                    val prompt = buffer.ifBlank { lastMeaningfulSitefMessage }.ifBlank { lastOperatorPrompt }
+                    if (prompt.isNotBlank()) {
+                        rememberMeaningfulSitefMessage(prompt)
+                        showOperatorMessage(prompt)
+                    }
+                    continueWith("0")
+                    return
+                }
                 if (shouldSuppressInteractivePrompts()) {
                     if (buffer.isNotBlank()) appendStatus(buffer)
                     continueWith("0")
@@ -1107,6 +1157,7 @@ class CliSiTefTransactionController(
     private fun isCardPresentmentPrompt(message: String): Boolean {
         val normalized = normalizeTefText(message)
         if (normalized.isBlank()) return false
+        if (isRemoveCardPrompt(normalized)) return false
         val asksCardAction =
             normalized.contains("insira") ||
                 normalized.contains("inserir") ||
@@ -1126,6 +1177,33 @@ class CliSiTefTransactionController(
         if (normalized.contains("insira") && normalized.contains("cart")) return true
         if (normalized.contains("aproxime") && normalized.contains("cart")) return true
         return asksCardAction && mentionsCard
+    }
+
+    /** SiTef após cancelar/negar com cartão ainda inserido. */
+    private fun isRemoveCardPrompt(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return (normalized.contains("retire") ||
+            normalized.contains("remova") ||
+            normalized.contains("retire o") ||
+            normalized.contains("pode retirar")) &&
+            normalized.contains("cart")
+    }
+
+    /**
+     * Em fluxo de negação, não deixar genéricos / senha / processamento trocarem
+     * a mensagem do emissor. "Retire o cartão" DEVE aparecer (cartão inserido).
+     */
+    private fun shouldHoldDenialOperatorMessage(buffer: String): Boolean {
+        if (!denialFlowActive.get() && !isDenialMessage(lastMeaningfulSitefMessage)) {
+            return false
+        }
+        if (isDenialMessage(buffer)) return false
+        if (isRemoveCardPrompt(buffer)) return false
+        return isGenericCancelMessage(buffer) ||
+            isCardPresentmentPrompt(buffer) ||
+            isPasswordEntryPrompt(buffer) ||
+            isTransientProcessingMessage(buffer)
     }
 
     /**
@@ -1225,6 +1303,16 @@ class CliSiTefTransactionController(
             onAnswer(0)
             return
         }
+        // Erro de simulação / negação: nunca Confirmar/Cancelar — só continua.
+        if (isDenialMessage(message) || isDenialMessage(lastMeaningfulSitefMessage)) {
+            val prompt = message.ifBlank { lastMeaningfulSitefMessage }
+            if (prompt.isNotBlank()) {
+                rememberMeaningfulSitefMessage(prompt)
+                showOperatorMessage(prompt)
+            }
+            onAnswer(0)
+            return
+        }
         restoreBackButtonIfAllowed()
         showTrackedDialog(
             AlertDialog.Builder(activity)
@@ -1266,8 +1354,8 @@ class CliSiTefTransactionController(
         minLength: Int,
         maxLength: Int,
     ) {
-        if (shouldSuppressInteractivePrompts()) {
-            Log.d(TAG, "senha supervisor ignorada — cancelamento/encerramento em curso")
+        if (shouldAutoAckDenialPrompts() || shouldSuppressInteractivePrompts()) {
+            Log.d(TAG, "senha supervisor ignorada — negação/cancelamento em curso")
             dismissActiveDialog()
             supervisorPasswordPending = false
             supervisorPasswordMinLength = 0
@@ -1276,6 +1364,13 @@ class CliSiTefTransactionController(
         }
         val message = prompt.ifBlank { lastOperatorPrompt }.ifBlank {
             activity.getString(R.string.tef_supervisor_password_prompt)
+        }
+        // Prompt ainda é a msg de simulação/negação: não abrir Confirmar/Cancelar.
+        if (isDenialMessage(message)) {
+            noteDenialIfPresent(message)
+            showOperatorMessage(message)
+            continueWith("")
+            return
         }
         supervisorPasswordPending = true
         if (minLength > 0) {
@@ -1329,9 +1424,12 @@ class CliSiTefTransactionController(
     }
 
     private fun shouldInterceptSupervisorPassword(command: Int, prompt: String): Boolean {
+        if (shouldAutoAckDenialPrompts()) return false
+        val effective = prompt.ifBlank { lastOperatorPrompt }
+        if (isDenialMessage(effective)) return false
         return TefSupervisorPassword.shouldIntercept(
             command = command,
-            prompt = prompt.ifBlank { lastOperatorPrompt },
+            prompt = effective,
             isAdminOperation = operationMode != TefOperationMode.SALE,
         )
     }
@@ -1457,7 +1555,28 @@ class CliSiTefTransactionController(
 
     private fun showOperatorMessage(message: String) {
         if (message.isBlank()) return
+        // Após negação, ignore "Transação/Operação cancelada" no painel —
+        // o operador precisa ler o motivo do emissor até o diálogo OK.
+        // No cancelamento do pinpad (sem negação), a mensagem DEVE aparecer.
+        if (isGenericCancelMessage(message) &&
+            (denialFlowActive.get() || isDenialMessage(lastMeaningfulSitefMessage))
+        ) {
+            appendStatus(message)
+            val keep = lastMeaningfulSitefMessage.trim().ifBlank { lastOperatorPrompt }
+            if (keep.isNotBlank()) {
+                onOperatorMessage(keep)
+            }
+            return
+        }
+        // "Retire o cartão": mostra no painel, mas não vira o motivo da negação.
+        if (isRemoveCardPrompt(message)) {
+            lastOperatorPrompt = message.trim()
+            appendStatus(message)
+            onOperatorMessage(message)
+            return
+        }
         lastOperatorPrompt = message.trim()
+        rememberMeaningfulSitefMessage(message)
         if (TefSupervisorPassword.isSupervisorPasswordHint(message)) {
             supervisorPasswordPending = true
         }
@@ -1470,6 +1589,95 @@ class CliSiTefTransactionController(
         onOperatorMessage(null)
     }
 
+    private fun rememberMeaningfulSitefMessage(message: String) {
+        val trimmed = message.trim()
+        if (trimmed.isBlank()) return
+        if (isPasswordEntryPrompt(trimmed)) return
+        if (isRemoveCardPrompt(trimmed)) return
+        if (isCardPresentmentPrompt(trimmed)) return
+        if (isTransientProcessingMessage(trimmed)) return
+        // "Transação/Operação cancelada" do SiTef após a negação NÃO pode
+        // sobrescrever o texto real do emissor (código / "Erro de simulação").
+        if (isGenericCancelMessage(trimmed)) return
+
+        val previous = lastMeaningfulSitefMessage
+        if (previous.isNotBlank() &&
+            (denialFlowActive.get() || isDenialMessage(previous)) &&
+            !isDenialMessage(trimmed)
+        ) {
+            return
+        }
+
+        lastMeaningfulSitefMessage = trimmed
+        if (isDenialMessage(trimmed)) {
+            denialFlowActive.set(true)
+        }
+    }
+
+    private fun noteDenialIfPresent(message: String) {
+        if (!isDenialMessage(message)) return
+        rememberMeaningfulSitefMessage(message)
+        denialFlowActive.set(true)
+        Log.d(TAG, "denialFlow ativo: ${message.take(80)}")
+    }
+
+    /** Status genérico de encerramento — não é o motivo da negação. */
+    private fun isGenericCancelMessage(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return normalized == "operacao cancelada" ||
+            normalized == "operacao cancelada." ||
+            normalized == "transacao cancelada" ||
+            normalized == "transacao cancelada." ||
+            normalized.startsWith("operacao cancelada") ||
+            normalized.startsWith("transacao cancelada") ||
+            normalized.startsWith("encerrando transacao") ||
+            normalized.startsWith("cancelando")
+    }
+
+    /**
+     * Preferência ao fechar com erro: texto da negação do host > fallback útil >
+     * "Operação cancelada" só se realmente não houver motivo.
+     */
+    private fun resolveFinishErrorMessage(fallback: String): String {
+        // Cancelamento no pinpad: não trocar por título de menu / prompt antigo.
+        if (abortRequested.get() &&
+            !denialFlowActive.get() &&
+            !isDenialMessage(lastMeaningfulSitefMessage)
+        ) {
+            val fromPrompt = lastOperatorPrompt.trim()
+            if (fromPrompt.isNotBlank() &&
+                (isPinpadCancelMessage(fromPrompt) || isGenericCancelMessage(fromPrompt))
+            ) {
+                return fromPrompt
+            }
+            val fb = fallback.trim()
+            return fb.ifBlank { "Operação cancelada." }
+        }
+
+        val denial = lastMeaningfulSitefMessage.trim()
+        if (denial.isNotBlank() &&
+            (isDenialMessage(denial) || denialFlowActive.get()) &&
+            !isGenericCancelMessage(denial)
+        ) {
+            return denial
+        }
+        val fb = fallback.trim()
+        if (fb.isNotBlank() && !isGenericCancelMessage(fb) && !isPasswordEntryPrompt(fb)) {
+            return fb
+        }
+        if (denial.isNotBlank() && !isGenericCancelMessage(denial) && !isPasswordEntryPrompt(denial)) {
+            return denial
+        }
+        return fb.ifBlank { "Operação cancelada." }
+    }
+
+    /** Após erro de simulação / negação: não abrir diálogos Confirmar/Cancelar. */
+    private fun shouldAutoAckDenialPrompts(): Boolean =
+        denialFlowActive.get() ||
+            isDenialMessage(lastMeaningfulSitefMessage) ||
+            isDenialMessage(lastOperatorPrompt)
+
     /** Durante encerramento/cancelamento/confirmação de pendências, não abrir diálogos. */
     private fun shouldAutoContinueDuringFinalize(): Boolean =
         abortRequested.get() || awaitingCancelFinish || confirmingPendingAfterSuccess
@@ -1477,21 +1685,60 @@ class CliSiTefTransactionController(
     /**
      * Bloqueia menu/senha/confirmação na UI após cancelamento no pinpad ou sessão
      * já encerrada (senão a senha do supervisor sobe depois de "Operação cancelada").
+     * Negação com mensagem do emissor NÃO entra aqui via PRESS_ANY_KEY (tratado à parte).
      */
     private fun shouldSuppressInteractivePrompts(): Boolean =
         settled.get() ||
             shouldAutoContinueDuringFinalize() ||
             goingBackToPreviousMenu.get()
 
+    private fun isTransientProcessingMessage(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        return normalized.contains("processando") ||
+            normalized.contains("aguarde") ||
+            normalized.contains("conectando") ||
+            normalized.contains("enviando") ||
+            normalized.contains("recebendo")
+    }
+
+    private fun isDenialMessage(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return normalized.contains("negad") ||
+            normalized.contains("nao autoriz") ||
+            normalized.contains("nao autorizada") ||
+            normalized.contains("recus") ||
+            normalized.contains("nao aprov") ||
+            normalized.contains("desfaz") ||
+            normalized.contains("erro de simulacao") ||
+            normalized.contains("erro simulacao") ||
+            normalized.contains("simulacao 04") ||
+            normalized.contains("simulacao04") ||
+            (normalized.contains("simulacao") &&
+                (normalized.contains("erro") || normalized.contains("04"))) ||
+            normalized.contains("codigo de resposta") ||
+            normalized.contains("codigo resposta") ||
+            normalized.contains("cod. resposta") ||
+            normalized.contains("cod resposta") ||
+            (normalized.contains("resposta") &&
+                (normalized.contains("codigo") || normalized.contains("cod")))
+    }
+
     private fun isPinpadCancelMessage(message: String): Boolean {
         val normalized = normalizeTefText(message)
         if (normalized.isBlank()) return false
+        // Negação do emissor / simulado não é cancelamento no pinpad.
+        if (isDenialMessage(normalized)) return false
+        if (denialFlowActive.get() || isDenialMessage(lastMeaningfulSitefMessage)) return false
         return normalized.contains("operacao cancelada") ||
-            normalized.contains("operacao cancelada.") ||
-            normalized.contains("cancelado no pinpad") ||
             normalized.contains("transacao cancelada") ||
+            normalized.contains("cancelado no pinpad") ||
+            normalized.contains("cancelado pelo operador") ||
             (normalized.contains("cancelad") &&
-                (normalized.contains("operacao") || normalized.contains("transacao")))
+                (normalized.contains("operacao") ||
+                    normalized.contains("transacao") ||
+                    normalized.contains("pelo usuario") ||
+                    normalized.contains("pelo operador")))
     }
 
     private fun isPasswordEntryPrompt(message: String): Boolean {
@@ -1504,11 +1751,62 @@ class CliSiTefTransactionController(
     }
 
     /**
+     * Mensagem ao falhar no estágio 1: prioriza texto do SiTef (negação / código
+     * de resposta do emissor). Só usa "Operação cancelada" em abort real do operador.
+     */
+    private fun resolveStage1FailureMessage(resultCode: Int): String {
+        val denialStored = lastMeaningfulSitefMessage.trim()
+        if (denialStored.isNotBlank() &&
+            !isGenericCancelMessage(denialStored) &&
+            (denialFlowActive.get() || isDenialMessage(denialStored))
+        ) {
+            return denialStored
+        }
+
+        val fromHost = denialStored.ifBlank { lastOperatorPrompt.trim() }
+
+        val hostLooksDenial = fromHost.isNotBlank() &&
+            !isPasswordEntryPrompt(fromHost) &&
+            !isCardPresentmentPrompt(fromHost) &&
+            !isGenericCancelMessage(fromHost) &&
+            (isDenialMessage(fromHost) ||
+                (!abortRequested.get() && !isPinpadCancelMessage(fromHost)))
+
+        if (hostLooksDenial) {
+            return fromHost
+        }
+
+        if (abortRequested.get() && isBenignPinpadAbortCode(resultCode) && !denialFlowActive.get()) {
+            return "Operação cancelada."
+        }
+
+        // Códigos positivos / negação padrão SiTef: preferir host se houver.
+        if (fromHost.isNotBlank() &&
+            !isPasswordEntryPrompt(fromHost) &&
+            !isCardPresentmentPrompt(fromHost) &&
+            !isGenericCancelMessage(fromHost) &&
+            !isPinpadCancelMessage(fromHost) &&
+            resultCode != -2 &&
+            resultCode != -6
+        ) {
+            return fromHost
+        }
+
+        return describeCancelResult(resultCode)
+    }
+
+    /**
      * Cancelamento no pinpad: limpa "Digite a senha", força abort da lib e agenda
      * fallback se o estágio 1 demorar (senão a tela fica presa na mensagem de senha).
      */
     private fun markAbortFromPinpadCancel(message: String) {
         if (settled.get() || transactionApproved) return
+        // Mensagem de negação do host nunca deve armar abort de pinpad.
+        if (isDenialMessage(message)) {
+            rememberMeaningfulSitefMessage(message)
+            showOperatorMessage(message.trim())
+            return
+        }
         supervisorPasswordPending = false
         supervisorPasswordMinLength = 0
         dismissActiveDialog()
@@ -1518,14 +1816,21 @@ class CliSiTefTransactionController(
         onHidePixQrCode()
 
         val status = when {
-            isPinpadCancelMessage(message) -> message.trim()
+            isPinpadCancelMessage(message) || isGenericCancelMessage(message) -> message.trim()
+            isRemoveCardPrompt(message) -> message.trim()
             else -> "Operação cancelada."
         }
         showOperatorMessage(status.ifBlank { "Operação cancelada." })
 
         val firstMark = abortRequested.compareAndSet(false, true)
         Log.d(TAG, "abort pinpad first=$firstMark msg=${message.take(80)}")
-        if (!firstMark) return
+        if (!firstMark) {
+            // Já abortando: ainda assim exibir "Retire o cartão" se vier agora.
+            if (isRemoveCardPrompt(message)) {
+                showOperatorMessage(message.trim())
+            }
+            return
+        }
 
         try {
             cliSiTef.setActivity(activity)
@@ -1840,10 +2145,20 @@ class CliSiTefTransactionController(
         abortRequested.set(true)
 
         showOperatorMessage(
-            if (goingBackToPreviousMenu.get()) {
-                activity.getString(R.string.tef_back_to_previous_menu_status)
-            } else {
-                "Encerrando transação TEF…"
+            when {
+                goingBackToPreviousMenu.get() ->
+                    activity.getString(R.string.tef_back_to_previous_menu_status)
+                // Negação ou cancelamento com cartão inserido: manter "Retire o cartão".
+                isRemoveCardPrompt(lastOperatorPrompt) ->
+                    lastOperatorPrompt
+                denialFlowActive.get() && lastMeaningfulSitefMessage.isNotBlank() ->
+                    lastMeaningfulSitefMessage
+                abortRequested.get() &&
+                    !denialFlowActive.get() &&
+                    (isPinpadCancelMessage(lastOperatorPrompt) ||
+                        isGenericCancelMessage(lastOperatorPrompt)) ->
+                    lastOperatorPrompt
+                else -> "Encerrando transação TEF…"
             }
         )
 
@@ -2023,7 +2338,11 @@ class CliSiTefTransactionController(
                     clearFiscalIfNoPending()
                     TefSessionGuard.markSessionClean()
                 }
-                finishWithError(forceError ?: cancelFallbackMessage.ifBlank { "Operação cancelada." })
+                finishWithError(
+                    resolveFinishErrorMessage(
+                        forceError ?: cancelFallbackMessage.ifBlank { "Operação cancelada." }
+                    )
+                )
             }
         }
     }
@@ -2052,10 +2371,12 @@ class CliSiTefTransactionController(
                 if (resultCode == 0 || isBenignPinpadAbortCode(resultCode)) {
                     clearFiscalIfNoPending()
                     TefSessionGuard.markSessionClean()
-                    finishWithError(fallback.ifBlank { "Operação cancelada." })
+                    finishWithError(resolveFinishErrorMessage(fallback.ifBlank { "Operação cancelada." }))
                 } else {
                     TefSessionGuard.markSessionDirty()
-                    finishWithError(describeTransactionError(resultCode))
+                    finishWithError(
+                        resolveFinishErrorMessage(describeTransactionError(resultCode))
+                    )
                 }
             }
         }
@@ -2088,7 +2409,7 @@ class CliSiTefTransactionController(
                 }
                 CancelFinishPurpose.USER_ABORT -> {
                     TefSessionGuard.markSessionDirty()
-                    finishWithError(fallbackMessage)
+                    finishWithError(resolveFinishErrorMessage(fallbackMessage))
                 }
             }
         }
@@ -2233,8 +2554,19 @@ class CliSiTefTransactionController(
         -2 -> "Operação cancelada."
         -5 -> "Sem comunicação com o servidor SiTef."
         -6 -> "Cancelado no pinpad."
-        in 1..Int.MAX_VALUE -> "Transação negada (código $code)."
-        else -> "Erro na transação TEF (código $code)."
+        in 1..Int.MAX_VALUE -> {
+            val host = lastMeaningfulSitefMessage.trim()
+            if (host.isNotBlank() && (isDenialMessage(host) || host.length > 8)) {
+                host
+            } else {
+                "Transação negada (código $code)."
+            }
+        }
+        else -> {
+            val host = lastMeaningfulSitefMessage.trim()
+            if (host.isNotBlank() && isDenialMessage(host)) host
+            else "Erro na transação TEF (código $code)."
+        }
     }
 
     /**
@@ -2262,15 +2594,11 @@ class CliSiTefTransactionController(
         "Erro pinpad (-43). Verifique FactoryService Gertec."
 
     /**
-     * Parâmetros da transação (m-SiTef `restricoes`). A lista de transações
-     * (`transacoesadicionaishabilitadas`) agora fica no CLSIT [Geral] e NÃO é mais
-     * enviada aqui — mandamos apenas o NUMEROTERMINAL.
+     * Campo `restricoes` do startTransaction: sem colchetes e sem NUMEROTERMINAL
+     * (terminal já vai no configure). Lista de transações fica no CLSIT [Geral].
      */
     private fun buildStartTransactionParameters(explicitRestrictions: String): String {
-        return TefClsitConfig.mergeSitefParameters(
-            base = explicitRestrictions,
-            terminalId = TefPreferences.getTerminalId(activity),
-        )
+        return TefClsitConfig.normalizeTransactionRestrictions(explicitRestrictions)
     }
 
     /**

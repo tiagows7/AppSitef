@@ -61,6 +61,9 @@ object TefConfigureDebug {
             appendLine("Parâmetros do configure (COMEXTERNA=2):")
             appendLine()
             appendLine("SiTef: $sitefAddress")
+            appendLine("Adicional:")
+            appendLine(additionalParams.ifBlank { "(vazio)" })
+            appendLine()
             appendLine("TipoComunicacaoExterna=$tipoComunicacaoExterna")
             appendLine("TokenRegistro=$tokenRegistro")
         }
