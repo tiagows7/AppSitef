@@ -30,7 +30,7 @@ object TefClsitConfig {
      * Substitui o envio dessa chave no `startTransaction` (agora lida do CLSIT).
      */
     const val CLSIT_GERAL_TRANSACOES_ADICIONAIS =
-        "7;8;9;14;16;17;26;27;28;123;3003;3006;3020;3289;3240;3021;3022;3919;4179;130;3203;3624;3627"
+        "7;8;9;14;16;17;26;27;28;123;3003;3006;3020;3289;3240;3021;3022;3919;4178;4179;130;3203;3624;3627"
 
     fun normalizeTransacoesHabilitadas(raw: String): String {
         if (raw.isBlank()) return ""
@@ -59,7 +59,7 @@ object TefClsitConfig {
     }
 
     /**
-     * Parâmetros adicionais do `configure` — sempre entre colchetes.
+     * Parâmetros adicionais do `configure` — um `[` no início, campos com `;`, `]` no final.
      * Ex.: `[TipoComunicacaoExterna=2;NUMEROTERMINAL=POS00001]`
      */
     fun mergeSitefParameters(base: String, terminalId: String): String {
@@ -72,24 +72,66 @@ object TefClsitConfig {
             return ensureConfigureParamsBrackets(trimmedBase)
         }
 
-        if (trimmedBase.startsWith("[") && trimmedBase.endsWith("]")) {
-            val inner = trimmedBase.substring(1, trimmedBase.length - 1).trim().trimEnd(';')
-            return if (inner.isBlank()) {
-                "[$numeroTerminal]"
-            } else {
-                "[$inner;$numeroTerminal]"
-            }
+        val baseInner = unwrapConfigureParamsInner(trimmedBase)
+        return if (baseInner.isBlank()) {
+            "[$numeroTerminal]"
+        } else {
+            "[$baseInner;$numeroTerminal]"
         }
-
-        return "[$trimmedBase;$numeroTerminal]"
     }
 
-    /** CliSiTef exige parâmetros adicionais do configure entre colchetes. */
+    /**
+     * CliSiTef: `[` só no início e `]` só no final; parâmetros separados por `;`.
+     * Também normaliza legado `[a][b]` → `[a;b]`.
+     */
     fun ensureConfigureParamsBrackets(raw: String): String {
+        val inner = unwrapConfigureParamsInner(raw)
+        if (inner.isBlank()) return ""
+        return "[$inner]"
+    }
+
+    /** Extrai o conteúdo interno (sem colchetes externos / multi-bloco). */
+    fun unwrapConfigureParamsInner(raw: String): String {
         val trimmed = raw.trim()
         if (trimmed.isBlank()) return ""
-        if (trimmed.startsWith("[") && trimmed.endsWith("]")) return trimmed
-        return "[$trimmed]"
+        return trimmed
+            .replace("][", ";")
+            .removePrefix("[")
+            .removeSuffix("]")
+            .trim()
+            .trim(';')
+    }
+
+    /** Junta partes do configure com `;` (sem colchetes). */
+    fun joinConfigureParamParts(parts: List<String>): String {
+        return parts
+            .map { it.trim().trim(';') }
+            .filter { it.isNotEmpty() }
+            .joinToString(";")
+    }
+
+    /** Valor ausente, em branco ou literal "null" — não enviar no configure. */
+    fun isPresentConfigureValue(value: String): Boolean {
+        val trimmed = value.trim()
+        return trimmed.isNotEmpty() && !trimmed.equals("null", ignoreCase = true)
+    }
+
+    /**
+     * Normaliza `TEF_TLSEXTERNA` para o valor textual da CliSiTef.
+     * Se vier vazio ou só o código numérico do REST (`1`/`2`/`3`/`4`), usa [fallback]
+     * (`TLSGWP` / `GSURF.SSL`). Enviar `TipoComunicacaoExterna=2` aborta o nativo
+     * após conectar no GWP Fiserv/Five Service.
+     */
+    fun resolveTipoComunicacaoExterna(tlsExterna: String, fallback: String): String {
+        val raw = tlsExterna.trim()
+        if (!isPresentConfigureValue(raw)) return fallback
+        return when (raw.uppercase()) {
+            "1", "3" ->
+                if (fallback.equals("GSURF.SSL", ignoreCase = true)) "GSURF.SSL" else raw
+            "2", "4" ->
+                if (fallback.equals("TLSGWP", ignoreCase = true)) "TLSGWP" else raw
+            else -> raw
+        }
     }
 
     /**
@@ -170,21 +212,28 @@ object TefClsitConfig {
 
     /**
      * Parâmetros adicionais do `configure` (manual CliSiTef §5.1.2 / §9 TLS):
-     * `[TipoComunicacaoExterna=...;ParmsClient=1=CNPJ;2=CNPJ_SW;NUMEROTERMINAL=...;...]`
+     * `[TipoComunicacaoExterna=...;TokenRegistro=...;ParmsClient=1=CNPJ;2=CNPJ_SW;NUMEROTERMINAL=...]`
+     *
+     * Um `[` no início, todos os campos separados por `;`, um `]` no final.
+     * `GwpTipoProxy` / `GwpEnderecoProxy` omitidos se nulos/vazios.
      *
      * Id 1 = CNPJ do estabelecimento (`TEF_CNPJ`).
      * Id 2 = CNPJ da automação comercial (`TEF_CNPJAUTOMACAO`).
      *
      * COMEXTERNA=1 (GSurf):
-     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA`,
+     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA` ou **GSURF.SSL** se vazio/numérico,
      * `GSurf.OTP` ← `TEF_OTP`,
      * `TerminalUUID` ← `TEF_GSURFUID`.
      *
-     * COMEXTERNA=2 (GWP/TLS):
-     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA`,
+     * COMEXTERNA=2 (GWP/TLS Fiserv / Five Service):
+     * `TipoComunicacaoExterna` ← `TEF_TLSEXTERNA` ou **TLSGWP** se vazio/numérico,
      * `TokenRegistro` ← `TEF_TLSTOKEN`,
-     * `GwpTipoProxy` ← `TEF_TLSTIPOPROXY`,
-     * `GwpEnderecoProxy` ← `TEF_TLSENDERECOPROXY`.
+     * `GwpTipoProxy` ← `TEF_TLSTIPOPROXY` (omitido se nulo/vazio),
+     * `GwpEnderecoProxy` ← `TEF_TLSENDERECOPROXY` (omitido se nulo/vazio).
+     *
+     * COMEXTERNA=0 (SiTef direto / sitdemo): sem `TipoComunicacaoExterna`.
+     * Seguem `ParmsClient` (`1=` CNPJ estabelecimento, `2=` CNPJ automação),
+     * `TransacoesAdicionaisHabilitadas` e `NUMEROTERMINAL`.
      */
     fun buildConfigureAdditionalParams(
         tipoComunicacaoExterna: String,
@@ -205,27 +254,27 @@ object TefClsitConfig {
 
         when (comExterna) {
             "1" -> {
-                // Sempre inicia com TipoComunicacaoExterna (TLS externa ou COMEXTERNA).
-                val tipo = tlsExterna.trim().ifBlank { comExterna }
-                parts.add("TipoComunicacaoExterna=$tipo")
-                otp.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("GSurf.OTP=$it")
+                // Manual §9.3: valor textual GSURF.SSL (não o código REST "1").
+                parts.add("TipoComunicacaoExterna=${resolveTipoComunicacaoExterna(tlsExterna, "GSURF.SSL")}")
+                if (isPresentConfigureValue(otp)) {
+                    parts.add("GSurf.OTP=${otp.trim()}")
                 }
-                gsurfUid.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("TerminalUUID=$it")
+                if (isPresentConfigureValue(gsurfUid)) {
+                    parts.add("TerminalUUID=${gsurfUid.trim()}")
                 }
             }
             "2" -> {
-                val tipo = tlsExterna.trim().ifBlank { comExterna }
-                parts.add("TipoComunicacaoExterna=$tipo")
-                tlsToken.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("TokenRegistro=$it")
+                // Fiserv / Five Service (TLS GWP): TipoComunicacaoExterna=TLSGWP
+                // (nunca enviar "2" — isso é só o flag REST COMEXTERNA).
+                parts.add("TipoComunicacaoExterna=${resolveTipoComunicacaoExterna(tlsExterna, "TLSGWP")}")
+                if (isPresentConfigureValue(tlsToken)) {
+                    parts.add("TokenRegistro=${tlsToken.trim()}")
                 }
-                tlsTipoProxy.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("GwpTipoProxy=$it")
+                if (isPresentConfigureValue(tlsTipoProxy)) {
+                    parts.add("GwpTipoProxy=${tlsTipoProxy.trim()}")
                 }
-                tlsEnderecoProxy.trim().takeIf { it.isNotEmpty() }?.let {
-                    parts.add("GwpEnderecoProxy=$it")
+                if (isPresentConfigureValue(tlsEnderecoProxy)) {
+                    parts.add("GwpEnderecoProxy=${tlsEnderecoProxy.trim()}")
                 }
             }
             else -> {
@@ -235,16 +284,8 @@ object TefClsitConfig {
             }
         }
 
-        val estabelecimento = cnpjEstabelecimento.filter { it.isDigit() }
-        val automacao = cnpjAutomacao.filter { it.isDigit() }
-        if (estabelecimento.isNotBlank() || automacao.isNotBlank()) {
-            val parmsClient = buildString {
-                append("ParmsClient=")
-                val clientParts = mutableListOf<String>()
-                if (estabelecimento.isNotBlank()) clientParts.add("1=$estabelecimento")
-                if (automacao.isNotBlank()) clientParts.add("2=$automacao")
-                append(clientParts.joinToString(";"))
-            }
+        val parmsClient = buildParmsClientParameter(cnpjEstabelecimento, cnpjAutomacao)
+        if (parmsClient.isNotBlank()) {
             parts.add(parmsClient)
         }
 
@@ -253,9 +294,22 @@ object TefClsitConfig {
             parts.add("TransacoesAdicionaisHabilitadas=$transacoes")
         }
 
-        // Formato CliSiTef: [TipoComunicacaoExterna=...;ParmsClient=...;NUMEROTERMINAL=...]
-        val base = if (parts.isEmpty()) "" else parts.joinToString(";")
-        return mergeSitefParameters(base, numeroTerminal)
+        // Ex.: [TipoComunicacaoExterna=...;TokenRegistro=...;ParmsClient=...;NUMEROTERMINAL=...]
+        return mergeSitefParameters(joinConfigureParamParts(parts), numeroTerminal)
+    }
+
+    /** `ParmsClient=1=CNPJ estabelecimento;2=CNPJ automação`. Vazio se os dois CNPJs faltam. */
+    private fun buildParmsClientParameter(
+        cnpjEstabelecimento: String,
+        cnpjAutomacao: String,
+    ): String {
+        val estabelecimento = cnpjEstabelecimento.filter { it.isDigit() }
+        val automacao = cnpjAutomacao.filter { it.isDigit() }
+        if (estabelecimento.isBlank() && automacao.isBlank()) return ""
+        val clientParts = mutableListOf<String>()
+        if (estabelecimento.isNotBlank()) clientParts.add("1=$estabelecimento")
+        if (automacao.isNotBlank()) clientParts.add("2=$automacao")
+        return "ParmsClient=${clientParts.joinToString(";")}"
     }
 
     /** Remove uma chave de uma seção INI (ex.: limpar legado do CLSIT). */

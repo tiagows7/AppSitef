@@ -173,7 +173,7 @@ class ConfigurationActivity : AppCompatActivity() {
                 tefVendaProduto = json.optString("TEF_VENDAPRODUTO", "N"),
                 tefTipoDocumento = json.optString("TEF_TIPODOCUMENTO", "N"),
                 tefTlsExterna = json.optString("TEF_TLSEXTERNA"),
-                tefTlsToken = json.optString("TEF_TLSTOKEN"),
+                tefTlsToken = readJsonText(json, "TEF_TLSTOKEN"),
                 tefTlsTipoProxy = json.optString("TEF_TLSTIPOPROXY"),
                 tefTlsEnderecoProxy = json.optString("TEF_TLSENDERECOPROXY"),
                 tefGsurfUid = json.optString("TEF_GSURFUID"),
@@ -190,6 +190,13 @@ class ConfigurationActivity : AppCompatActivity() {
             }
             else -> JSONObject(raw)
         }
+    }
+
+    /** DataSetToJSON grava NULL do banco como o texto "null". Isso não é token. */
+    private fun readJsonText(json: JSONObject, key: String): String {
+        if (!json.has(key) || json.isNull(key)) return ""
+        val value = json.optString(key, "").trim()
+        return if (value.equals("null", ignoreCase = true)) "" else value
     }
 
     override fun onSupportNavigateUp(): Boolean {

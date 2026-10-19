@@ -60,7 +60,9 @@ class CliSiTefLegacyTransactionController(
             return
         }
 
-        GertecPinpadBootstrap.ensureGediReady(activity)
+        if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            GertecPinpadBootstrap.ensureGediReady(activity)
+        }
 
         val now = Date()
         dataFiscal = SimpleDateFormat("yyyyMMdd", Locale.US).format(now)

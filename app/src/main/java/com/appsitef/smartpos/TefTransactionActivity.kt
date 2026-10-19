@@ -1,6 +1,7 @@
 package com.appsitef.smartpos
 
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
@@ -17,7 +18,9 @@ import com.appsitef.smartpos.tef.CliSiTefConstants
 import com.appsitef.smartpos.tef.CliSiTefHolder
 import com.appsitef.smartpos.tef.CliSiTefTransactionController
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
+import com.appsitef.smartpos.tef.GertecTefPinpad
 import com.appsitef.smartpos.tef.TefOperatorMessagePanel
+import com.appsitef.smartpos.tef.TefTraceLog
 import com.appsitef.smartpos.tef.TefOperationMode
 import com.appsitef.smartpos.tef.TefPixQrCodePanel
 import com.appsitef.smartpos.ui.MoneyInputMask
@@ -41,14 +44,26 @@ class TefTransactionActivity : AppCompatActivity() {
     private var controller: CliSiTefTransactionController? = null
     private val statusLines = StringBuilder()
     private var lastTefResultJson: String? = null
+    private var saleStarted = false
+    private var pendingAmount = ""
+    private var pendingOperator = ""
+    private var pendingFunctionId = CliSiTefConstants.FUNCTION_MENU
+    private var pendingRestrictions = ""
+    private var pinpadWasShowing = false
+    private var leftScreenDuringSale = false
+    private var ignoreSpuriousCancelUntil = 0L
+    private val pinpadDismissWatch = Runnable { watchPinpadDismiss() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TefTraceLog.write(this, "TefTransactionActivity.onCreate")
         setContentView(R.layout.activity_tef_transaction)
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         CliSiTefAssetInstaller.ensureInstalled(this)
-        GertecPinpadBootstrap.ensureGediReady(this)
+        if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            GertecPinpadBootstrap.ensureGediReady(this)
+        }
 
         tvStatus = findViewById(R.id.tvTefStatus)
         scrollStatus = findViewById(R.id.scrollTefStatus)
@@ -92,10 +107,11 @@ class TefTransactionActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this) {
             if (panelCancelConfirm.visibility == View.VISIBLE) {
                 hideCancelConfirm()
-            } else {
+            } else if (!isSpuriousCancelFromPinpad()) {
                 confirmAndAbortTef()
             }
         }
+        window.decorView.post(pinpadDismissWatch)
 
         if (!CliSiTefTransactionController.isSdkPresent()) {
             showFatal("SDK CliSiTef não encontrado.")
@@ -208,7 +224,7 @@ class TefTransactionActivity : AppCompatActivity() {
                         putExtra(EXTRA_FUNCTION, functionId)
                     },
                 )
-                finish()
+            finish()
             },
         )
 
@@ -227,12 +243,34 @@ class TefTransactionActivity : AppCompatActivity() {
 
         operatorMessagePanel.show(getString(R.string.tef_operator_message_waiting))
         appendStatus("Conectando pinpad / SiTef…")
-        val effectiveAmount = amount.ifBlank { "0" }
-        controller?.startSale(
-            functionId = functionId,
-            amount = effectiveAmount,
-            operator = operator,
-            restrictions = ""
+        pendingAmount = amount.ifBlank { "0" }
+        pendingOperator = operator
+        pendingFunctionId = functionId
+        pendingRestrictions = ""
+        findViewById<View>(android.R.id.content).post { startPendingSale() }
+    }
+
+    /**
+     * GPOS700: o pinpad virtual sobe branco se a venda começa no onCreate,
+     * antes da janela estar visível.
+     */
+    private fun startPendingSale() {
+        if (saleStarted || isFinishing) {
+            TefTraceLog.write(this, "startPendingSale skip started=$saleStarted finishing=$isFinishing")
+            return
+        }
+        val activeController = controller
+        if (activeController == null) {
+            TefTraceLog.write(this, "startPendingSale skip controller=null")
+            return
+        }
+        saleStarted = true
+        cliSiTef.setActivity(this)
+        activeController.startSale(
+            functionId = pendingFunctionId,
+            amount = pendingAmount,
+            operator = pendingOperator,
+            restrictions = pendingRestrictions,
         )
     }
 
@@ -241,20 +279,72 @@ class TefTransactionActivity : AppCompatActivity() {
         if (isFinishing) return
         if (!btnCancelar.isEnabled) return
         if (panelCancelConfirm.visibility == View.VISIBLE) return
+        if (isSpuriousCancelFromPinpad()) return
 
         panelCancelConfirm.visibility = View.VISIBLE
         panelCancelConfirm.bringToFront()
         panelCancelConfirm.requestFocus()
     }
 
+    /**
+     * Ao confirmar a senha o pinpad fecha e o toque (ou a tecla voltar) cai
+     * no botão Cancelar. Ignora esse evento por um instante.
+     */
+    private fun isSpuriousCancelFromPinpad(): Boolean {
+        notePinpadDismiss()
+        if (SystemClock.elapsedRealtime() >= ignoreSpuriousCancelUntil) return false
+        TefTraceLog.write(this, "cancel confirm ignorado apos pinpad")
+        return true
+    }
+
+    @Suppress("DEPRECATION")
+    private fun watchPinpadDismiss() {
+        if (isFinishing) return
+        notePinpadDismiss()
+        window.decorView.postDelayed(pinpadDismissWatch, 80)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun notePinpadDismiss() {
+        val showing = try {
+            (fragmentManager.findFragmentByTag("Pinpad") as? android.app.DialogFragment)
+                ?.dialog
+                ?.isShowing == true
+        } catch (_: Throwable) {
+            false
+        }
+        if (pinpadWasShowing && !showing) {
+            armIgnoreSpuriousCancel()
+        }
+        pinpadWasShowing = showing
+    }
+
+    private fun armIgnoreSpuriousCancel() {
+        ignoreSpuriousCancelUntil = SystemClock.elapsedRealtime() + 1000L
+    }
+
     private fun hideCancelConfirm() {
         panelCancelConfirm.visibility = View.GONE
+    }
+
+    override fun onPause() {
+        if (saleStarted && !isFinishing) {
+            leftScreenDuringSale = true
+        }
+        super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
         if (::cliSiTef.isInitialized) {
             cliSiTef.setActivity(this)
+        }
+        if (leftScreenDuringSale) {
+            leftScreenDuringSale = false
+            armIgnoreSpuriousCancel()
+        }
+        window.decorView.post {
+            if (!isFinishing) startPendingSale()
         }
     }
 
@@ -282,6 +372,7 @@ class TefTransactionActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        window.decorView.removeCallbacks(pinpadDismissWatch)
         hideCancelConfirm()
         controller?.release()
         controller = null

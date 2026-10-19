@@ -7,6 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
 import com.appsitef.smartpos.tef.GertecReceiptPrinter
+import com.appsitef.smartpos.tef.GertecTefPinpad
 import com.appsitef.smartpos.tef.TefPreferences
 import com.appsitef.smartpos.tef.TefTerminalTotalsStore
 import com.appsitef.smartpos.ui.WaitDialog
@@ -37,7 +38,9 @@ class FinalizeTerminalActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.setDisplayShowHomeEnabled(true)
 
-        GertecPinpadBootstrap.ensureGediReady(this)
+        if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            GertecPinpadBootstrap.ensureGediReady(this)
+        }
 
         tvSessionStart = findViewById(R.id.tvFinalizeSessionStart)
         tvTotalSales = findViewById(R.id.tvFinalizeTotalSales)

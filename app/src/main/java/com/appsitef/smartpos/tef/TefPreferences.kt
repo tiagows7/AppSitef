@@ -269,7 +269,7 @@ object TefPreferences {
             .putString(KEY_TEF_CNPJ_AUTOMACAO, terminal.tefCnpjAutomacao)
             .putString(KEY_TEF_TRANSACOES, terminal.tefTransacoesHabilitadas)
             .putString(KEY_TEF_TLS_EXTERNA, terminal.tefTlsExterna)
-            .putString(KEY_TEF_TLS_TOKEN, terminal.tefTlsToken)
+            .putString(KEY_TEF_TLS_TOKEN, iniValue(terminal.tefTlsToken))
             .putString(KEY_TEF_TLS_TIPO_PROXY, terminal.tefTlsTipoProxy)
             .putString(KEY_TEF_TLS_ENDERECO_PROXY, terminal.tefTlsEnderecoProxy)
             .putString(KEY_TEF_GSURF_UID, terminal.tefGsurfUid)
@@ -354,7 +354,7 @@ object TefPreferences {
             appendLine("VENDAPRODUTO=${terminal.tefVendaProduto}")
             appendLine("TIPODOCUMENTO=${terminal.tefTipoDocumento}")
             appendLine("TLSEXTERNA=${terminal.tefTlsExterna}")
-            appendLine("TLSTOKEN=${terminal.tefTlsToken}")
+            appendLine("TLSTOKEN=${iniValue(terminal.tefTlsToken)}")
             appendLine("TLSTIPOPROXY=${terminal.tefTlsTipoProxy}")
             appendLine("TLSENDERECOPROXY=${terminal.tefTlsEnderecoProxy}")
             appendLine("GSURFUID=${terminal.tefGsurfUid}")
@@ -396,7 +396,7 @@ object TefPreferences {
             .putString(KEY_TEF_CNPJ_AUTOMACAO, tef["CNPJAUTOMACAO"].orEmpty())
             .putString(KEY_TEF_TRANSACOES, tef["TRANSACAOHABILITADAS"].orEmpty())
             .putString(KEY_TEF_TLS_EXTERNA, tef["TLSEXTERNA"].orEmpty())
-            .putString(KEY_TEF_TLS_TOKEN, tef["TLSTOKEN"].orEmpty())
+            .putString(KEY_TEF_TLS_TOKEN, iniValue(tef["TLSTOKEN"]))
             .putString(KEY_TEF_TLS_TIPO_PROXY, tef["TLSTIPOPROXY"].orEmpty())
             .putString(KEY_TEF_TLS_ENDERECO_PROXY, tef["TLSENDERECOPROXY"].orEmpty())
             .putString(KEY_TEF_GSURF_UID, tef["GSURFUID"].orEmpty())
@@ -423,7 +423,7 @@ object TefPreferences {
             .putString(KEY_TEF_ACEITA_PARCIAL, tef["ACEITAPARCIAL"].orEmpty())
             .putString(KEY_TEF_VENDA_PRODUTO, tef["VENDAPRODUTO"].orEmpty())
             .putString(KEY_TEF_TIPO_DOCUMENTO, tef["TIPODOCUMENTO"].orEmpty())
-            .apply()
+            .commit()
     }
 
     private fun parseIni(content: String): Map<String, Map<String, String>> {
@@ -445,6 +445,12 @@ object TefPreferences {
             }
         }
         return result
+    }
+
+    /** Texto "null" vem do DataSetToJSON quando o campo SQL está nulo. */
+    private fun iniValue(value: String?): String {
+        val trimmed = value?.trim().orEmpty()
+        return if (trimmed.equals("null", ignoreCase = true)) "" else trimmed
     }
 
     fun saveTransactionDefaults(

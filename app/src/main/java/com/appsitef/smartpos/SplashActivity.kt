@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
+import com.appsitef.smartpos.tef.GertecTefPinpad
 import com.appsitef.smartpos.tef.TefPreferences
 
 class SplashActivity : AppCompatActivity() {
@@ -15,7 +16,10 @@ class SplashActivity : AppCompatActivity() {
 
         TefPreferences.loadModuloIniIfExists(this)
         CliSiTefAssetInstaller.ensureInstalled(this)
-        GertecPinpadBootstrap.initAsync(applicationContext)
+        if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            GertecPinpadBootstrap.initAsync(applicationContext)
+        }
+        GertecTefPinpad.probePinKeys(this)
 
         window.decorView.postDelayed({
             if (!isFinishing) {
