@@ -79,9 +79,13 @@ class CliSiTefTransactionController(
     private val awaitingCardPresentment = AtomicBoolean(false)
     /** Fluxo débito/crédito ativo (inclui menus à vista/parcelas até o cartão). */
     private val cardPaymentFlowActive = AtomicBoolean(false)
+    /** Após À Vista/parcelas: GetPIN em curso — atrasa resposta ao CMD_ABORT. */
+    private val pinEntryArmed = AtomicBoolean(false)
     private var goBackFailsafeRunnable: Runnable? = null
     private var goBackHardTimeoutRunnable: Runnable? = null
     private val mainHandler = android.os.Handler(Looper.getMainLooper())
+    /** Solta o pinpad que trava o toque no menu crédito/débito do GPOS720. */
+    private var menuTouchWatchdog: Thread? = null
     private val abortRequested = AtomicBoolean(false)
     private val abortFallbackPosted = AtomicBoolean(false)
     private var activeDialog: AlertDialog? = null
@@ -123,6 +127,14 @@ class CliSiTefTransactionController(
     private var pendingFinalizeConfirm: Int = CliSiTefConstants.CONFIRM_TRANSACTION
     /** Marca que a venda foi estornada por falha de impressão do comprovante TEF. */
     private var saleReversedForPrintFailure = false
+    /**
+     * Encerra o iterativo preso (erro -12) com finishTransaction(1) e cupom vazio.
+     * Não estorna o cupom da venda já aprovada.
+     */
+    private var closingLeftoverInteractive = false
+    private var ignoreStrayInteractive = false
+    private var leftoverInteractiveOnDone: (() -> Unit)? = null
+    private var leftoverCloseWatchdogRunnable: Runnable? = null
     /** ADMIN_PENDING: houve ao menos uma pendência confirmada neste fluxo. */
     private var pendingTransactionsWereResolved = false
 
@@ -137,6 +149,7 @@ class CliSiTefTransactionController(
         operator: String,
         restrictions: String = ""
     ) {
+        TefTraceLog.write(activity, "startSale mode=$operationMode fn=$functionId amount=$amount")
         if (running.getAndSet(true)) return
         saleAmount = amount
         saleOperator = operator
@@ -158,6 +171,8 @@ class CliSiTefTransactionController(
 
         if (operationMode == TefOperationMode.ADMIN_PENDING) {
             showOperatorMessage(activity.getString(R.string.tef_pending_checking))
+        } else if (operationMode == TefOperationMode.SALE) {
+            showOperatorMessage(activity.getString(R.string.tef_connecting_server))
         }
 
         settled.set(false)
@@ -186,6 +201,10 @@ class CliSiTefTransactionController(
         pendingFinalizeConfirm = CliSiTefConstants.CONFIRM_TRANSACTION
         saleReversedForPrintFailure = false
         pendingTransactionsWereResolved = false
+        closingLeftoverInteractive = false
+        ignoreStrayInteractive = false
+        leftoverInteractiveOnDone = null
+        cancelLeftoverCloseWatchdog()
         lastOperatorPrompt = ""
         lastMeaningfulSitefMessage = ""
         denialFlowActive.set(false)
@@ -224,7 +243,14 @@ class CliSiTefTransactionController(
 
             cliSiTef.setActivity(activity)
             cliSiTef.setDebug(true)
-            GertecPinpadBootstrap.ensureGediReady(activity)
+            // Pendência só confirma cupom no host. Abrir o pinpad aqui (PP_Open no
+            // GPOS700) derruba a sessão e a limpeza seguinte estorna a venda.
+            if (operationMode != TefOperationMode.ADMIN_PENDING) {
+                if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+                    GertecPinpadBootstrap.ensureGediReady(activity)
+                }
+                GertecTefPinpad.prepare(activity)
+            }
 
             runSale(functionId, amount, operator, restrictions)
         } catch (error: Throwable) {
@@ -248,8 +274,26 @@ class CliSiTefTransactionController(
         // finishTransaction usa params do configure (com colchetes), não as restrições.
         additionalParameters = TefPreferences.getSitefConfigureAdditionalParams(activity)
 
-        ensureCliSiTefReady {
-            configureAndStart(functionId, amount, operator, transactionParameters)
+        // GPOS700: não sondar configure/getQtt antes do start (abort nativo).
+        // GPOS720: ensureReady; TLS/GSurf (COMEXTERNA 1/2) já pulam probe+abort.
+        if (GertecTefPinpad.shouldProbeAndLiberateBeforeSale()) {
+            ensureCliSiTefReady {
+                configureAndStart(functionId, amount, operator, transactionParameters)
+            }
+        } else {
+            if (TefSessionGuard.needsCleanup) {
+                Thread({
+                    unlockStuckInteractive()
+                    TefSessionGuard.markSessionClean()
+                    activity.runOnUiThread {
+                        if (!activity.isFinishing) {
+                            configureAndStart(functionId, amount, operator, transactionParameters)
+                        }
+                    }
+                }, "tef-gpos700-unlock").start()
+            } else {
+                configureAndStart(functionId, amount, operator, transactionParameters)
+            }
         }
     }
 
@@ -266,15 +310,13 @@ class CliSiTefTransactionController(
         val additionalParams = TefPreferences.getSitefConfigureAdditionalParams(activity)
         onStatus("SiTef: $sitefAddress | Terminal: $numeroTerminal")
 
-        TefConfigureDebug.maybeShowGwpConfigureDialog(activity, additionalParams) {
-            runConfigureAndStart(
-                functionId = functionId,
-                amount = amount,
-                operator = operator,
-                restrictions = restrictions,
-                additionalParams = additionalParams,
-            )
-        }
+        runConfigureAndStart(
+            functionId = functionId,
+            amount = amount,
+            operator = operator,
+            restrictions = restrictions,
+            additionalParams = additionalParams,
+        )
     }
 
     private fun runConfigureAndStart(
@@ -284,6 +326,7 @@ class CliSiTefTransactionController(
         restrictions: String,
         additionalParams: String,
     ) {
+        traceTef("configure begin")
         val configureCode = cliSiTef.configure(
             TefPreferences.getSitefConfigureAddress(activity),
             TefPreferences.getStoreId(activity),
@@ -291,22 +334,39 @@ class CliSiTefTransactionController(
             additionalParams,
         )
 
+        traceTef("configure=$configureCode")
         if (configureCode == -12) {
             if (configureRetryAttempts >= 3) {
-                finishWithError(describeConfigureError(configureCode))
+                finishWithError(
+                    if (operationMode == TefOperationMode.ADMIN_PENDING) {
+                        describePendingConfigureError(configureCode)
+                    } else {
+                        describeConfigureError(configureCode)
+                    }
+                )
                 return
             }
             configureRetryAttempts++
-            Log.w(TAG, "configure=-12, limpando sessão (tentativa $configureRetryAttempts)")
-            TefSessionGuard.markSessionDirty()
-            forceClearSession {
-                configureAndStart(functionId, amount, operator, restrictions)
+            Log.w(
+                TAG,
+                "configure=-12, encerrando iterativo sem estornar (tentativa $configureRetryAttempts)",
+            )
+            closeLeftoverInteractive {
+                if (!activity.isFinishing) {
+                    configureAndStart(functionId, amount, operator, restrictions)
+                }
             }
             return
         }
 
         if (configureCode != CliSiTef.CONFIG_OK) {
-            finishWithError(describeConfigureError(configureCode))
+            finishWithError(
+                if (operationMode == TefOperationMode.ADMIN_PENDING) {
+                    describePendingConfigureError(configureCode)
+                } else {
+                    describeConfigureError(configureCode)
+                }
+            )
             return
         }
 
@@ -323,10 +383,34 @@ class CliSiTefTransactionController(
 
         TefPendingFiscal.save(activity, taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
         TefSessionGuard.markTransactionStarted(taxInvoiceNumber, taxInvoiceDate, taxInvoiceTime)
-        onStatus("Iniciando transação TEF…")
 
-        // Após Voltar no meio da leitura do cartão, reaponta o pinpad virtual.
-        resetPinpadForNewTransaction()
+        beginStartTransaction(functionId, trnAmount, operador, restrictions)
+    }
+
+    private fun beginStartTransaction(
+        functionId: Int,
+        trnAmount: String,
+        operador: String,
+        restrictions: String,
+    ) {
+        ignoreStrayInteractive = false
+        closingLeftoverInteractive = false
+        onStatus("Iniciando transação TEF…")
+        showOperatorMessage(activity.getString(R.string.tef_connecting_server))
+
+        // TLS/GSurf ou GPOS700: nunca closePinPad antes do start — 2ª venda
+        // corrompe refs JNI / aborta (SIGSEGV ou volta aos botões). Só setActivity.
+        // GPOS720 sem TLS externa: resetPinpad após Voltar (Setis).
+        val comExterna = TefPreferences.getTefComExterna(activity)
+        if (isExternalTlsComExterna(comExterna) ||
+            !GertecTefPinpad.allowsClosePinPadBeforeStart()
+        ) {
+            runCatching { cliSiTef.setActivity(activity) }
+        } else if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            resetPinpadForNewTransaction()
+        } else {
+            runCatching { cliSiTef.setActivity(activity) }
+        }
 
         Log.d(
             TAG,
@@ -334,6 +418,9 @@ class CliSiTefTransactionController(
                 "transacoes=[${TefPreferences.resolveTransacoesHabilitadas(activity)}] params=[$restrictions]",
         )
 
+        traceTef(
+            "start fn=$functionId amount=$trnAmount cupom=$taxInvoiceNumber op=$operador"
+        )
         val startResult = cliSiTef.startTransaction(
             this,
             functionId,
@@ -345,6 +432,7 @@ class CliSiTefTransactionController(
             restrictions,
         )
 
+        traceTef("startResult=$startResult")
         if (startResult != 0 && startResult != CliSiTefConstants.CONTINUA) {
             finishWithError(describeStartError(startResult))
         }
@@ -469,11 +557,23 @@ class CliSiTefTransactionController(
     private fun resetPinpadForNewTransaction() {
         try {
             cliSiTef.setActivity(activity)
-            runCatching {
-                val closeResult = cliSiTef.closePinPad()
-                Log.d(TAG, "closePinPad=$closeResult")
+            // TLS/GSurf: closePinPad na 2ª venda derruba o processo (SIGSEGV / tela branca).
+            // GPOS700: closePinPad antes do start também aborta a sessão.
+            if (GertecTefPinpad.allowsClosePinPadBeforeStart() &&
+                !isExternalTlsComExterna(TefPreferences.getTefComExterna(activity))
+            ) {
+                runCatching {
+                    val closeResult = cliSiTef.closePinPad()
+                    Log.d(TAG, "closePinPad=$closeResult")
+                }
+            } else {
+                Log.d(TAG, "resetPinpad: skip closePinPad (TLS/GPOS700)")
             }
-            GertecPinpadBootstrap.ensureGediReady(activity)
+            if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+                GertecPinpadBootstrap.ensureGediReady(activity)
+            } else {
+                GertecTefPinpad.prepare(activity)
+            }
             cliSiTef.setActivity(activity)
         } catch (error: Throwable) {
             Log.w(TAG, "resetPinpadForNewTransaction", error)
@@ -560,10 +660,10 @@ class CliSiTefTransactionController(
             scheduleAbortFallback()
         } catch (error: Throwable) {
             Log.e(TAG, "abort failed", error)
-            finalizeInteractiveFunction(
-                reason = "abortException",
-                fallbackMessage = "Operação cancelada."
-            )
+            if (!settled.get()) {
+                TefSessionGuard.markSessionDirty()
+                finishInteractiveStageFailure(-1, "Operação cancelada.")
+            }
         }
     }
 
@@ -615,6 +715,11 @@ class CliSiTefTransactionController(
         confirmingPendingAfterSuccess = false
         pendingConfirmQueue.clear()
         pendingConfirmOnComplete = null
+        cancelLeftoverCloseWatchdog()
+        val leftoverDone = leftoverInteractiveOnDone
+        leftoverInteractiveOnDone = null
+        closingLeftoverInteractive = false
+        leftoverDone?.invoke()
         if (!settled.get()) {
             TefSessionGuard.markSessionDirty()
             TefPendingFiscal.load(activity)?.let { fiscal ->
@@ -655,6 +760,27 @@ class CliSiTefTransactionController(
             }
         }
         Log.d(TAG, "onData stage=$currentStage cmd=$command field=$effectiveFieldId buf=[$buffer]")
+        traceTef(
+            "onData stage=$currentStage cmd=$command field=$effectiveFieldId buf=${buffer.take(120)}"
+        )
+
+        // CMD 23: keepalive do pinpad (cartão e senha). Responder sync na thread do
+        // listener — continue atrasado empilha threads e trava as teclas no GetPIN.
+        if (command == CliSiTef.CMD_ABORT_REQUEST) {
+            if (closingLeftoverInteractive || ignoreStrayInteractive) {
+                continueTransactionSync("")
+                return
+            }
+            val payload = if (abortRequested.get()) {
+                traceTef("CMD_ABORT_REQUEST — operador já cancelou → interrompe (sync)")
+                "1"
+            } else {
+                ""
+            }
+            continueTransactionSync(payload)
+            return
+        }
+
         dispatchOnMain {
             handleDataCommand(command, effectiveFieldId, buffer, minLength, maxLength)
         }
@@ -662,7 +788,17 @@ class CliSiTefTransactionController(
 
     override fun onTransactionResult(currentStage: Int, resultCode: Int) {
         Log.d(TAG, "onTransactionResult stage=$currentStage code=$resultCode")
+        traceTef("onTransactionResult stage=$currentStage code=$resultCode")
         dispatchOnMain {
+            if (closingLeftoverInteractive) {
+                Log.d(TAG, "closeLeftover stage=$currentStage code=$resultCode")
+                finishLeftoverClose()
+                return@dispatchOnMain
+            }
+            if (ignoreStrayInteractive) {
+                Log.d(TAG, "stray stage=$currentStage code=$resultCode ignorado")
+                return@dispatchOnMain
+            }
             cancelAbortFallback()
             appendStatus("TEF estágio $currentStage → código $resultCode")
             when (currentStage) {
@@ -678,19 +814,13 @@ class CliSiTefTransactionController(
                     } else if (settled.get() && abortAwaitingLateStage1) {
                         abortAwaitingLateStage1 = false
                         Log.d(TAG, "late stage1=$resultCode após timeout abort — limpando sessão")
-                        finalizeInteractiveFunction(
-                            reason = "lateStage1:$resultCode",
-                            fallbackMessage = "",
-                            onComplete = { TefSessionGuard.markSessionClean() }
-                        )
+                        TefSessionGuard.markSessionClean()
                     } else if (resultCode == 0) {
                         awaitingCancelFinish = false
                         goingBackToPreviousMenu.set(false)
                         denialFlowActive.set(false)
                         transactionApproved = true
-                        // Estágio 1: finishTransaction para obter o comprovante (o pagamento
-                        // permanece pendente). A confirmação/estorno definitivo acontece no
-                        // estágio 2, DEPOIS da impressão (homologação 5.1.1).
+                        // Confirma no host antes de imprimir. A via do estabelecimento sai no estágio 2.
                         confirmApprovedTransaction()
                     } else if (!settled.get() && goingBackToPreviousMenu.get()) {
                         // Continua=1 encerrou — reabre menu sem diálogo "Operação cancelada".
@@ -706,9 +836,9 @@ class CliSiTefTransactionController(
                                 showOperatorMessage(fallback)
                             }
                         }
-                        finalizeInteractiveFunction(
-                            reason = "stage1:$resultCode",
-                            fallbackMessage = resolveFinishErrorMessage(fallback)
+                        finishInteractiveStageFailure(
+                            resultCode,
+                            resolveFinishErrorMessage(fallback)
                         )
                     }
                 }
@@ -751,6 +881,10 @@ class CliSiTefTransactionController(
     ) {
         // Cancelamento no pinpad: a msg "Operação cancelada" pode chegar ANTES do
         // onTransactionResult. Marcamos abort cedo para não abrir senha do supervisor.
+        if (closingLeftoverInteractive || ignoreStrayInteractive) {
+            continueWith("")
+            return
+        }
         if (isPinpadCancelMessage(buffer)) {
             markAbortFromPinpadCancel(buffer)
         }
@@ -915,29 +1049,31 @@ class CliSiTefTransactionController(
             }
 
             CliSiTef.CMD_PRESS_ANY_KEY -> {
-                if (shouldAutoAckDenialPrompts()) {
-                    val prompt = buffer.ifBlank { lastMeaningfulSitefMessage }.ifBlank { lastOperatorPrompt }
-                    if (prompt.isNotBlank()) {
-                        rememberMeaningfulSitefMessage(prompt)
-                        showOperatorMessage(prompt)
+                if (buffer.isNotBlank()) {
+                    appendStatus(buffer)
+                    if (isPinpadErrorMessage(buffer) || isDenialMessage(buffer)) {
+                        rememberMeaningfulSitefMessage(buffer)
+                        showOperatorMessage(buffer)
                     }
+                }
+                // Negação / "TRANSACAO INVALIDA": auto-ack — senão o stage1 chega
+                // com o diálogo aberto e a mensagem de falha fica errada.
+                if (shouldAutoAckDenialPrompts() ||
+                    shouldSuppressInteractivePrompts() ||
+                    isPinpadErrorMessage(buffer) ||
+                    isDenialMessage(buffer)
+                ) {
                     continueWith("0")
                     return
                 }
-                if (shouldSuppressInteractivePrompts()) {
-                    if (buffer.isNotBlank()) appendStatus(buffer)
-                    continueWith("0")
-                    return
-                }
-                if (buffer.isNotBlank()) appendStatus(buffer)
                 showConfirmationDialog(buffer) { which ->
                     continueWith(which.toString())
                 }
             }
 
             CliSiTef.CMD_ABORT_REQUEST -> {
-                markAbortFromPinpadCancel(buffer.ifBlank { "Operação cancelada." })
-                continueWith("")
+                // Tratado em onData (continue sync na thread do listener).
+                traceTef("CMD_ABORT_REQUEST ignorado em handleDataCommand (já respondido)")
             }
 
             CliSiTef.CMD_MESSAGE_QRCODE -> {
@@ -1015,7 +1151,11 @@ class CliSiTefTransactionController(
     }
 
     private fun showPaymentMenu(menuBuffer: String) {
-        if (!menuDialogOpen.compareAndSet(false, true)) return
+        // Segundo menu com o flag ainda ligado: substituir as opções.
+        // Ignorar o comando deixa o SiTef esperando e os botões visíveis sem resposta.
+        if (!menuDialogOpen.compareAndSet(false, true)) {
+            menuDialogOpen.set(true)
+        }
 
         val raw = menuBuffer.ifBlank { cliSiTef.buffer.orEmpty() }
         // CLSIT TransacoesDesabilitadas=2 (cheque): o host ainda pode enviar a
@@ -1083,6 +1223,8 @@ class CliSiTefTransactionController(
                 false
             ) as MaterialButton
             button.text = option.label
+            button.isEnabled = true
+            button.isClickable = true
             button.setOnClickListener {
                 hideInlineMenuOptions()
                 capturePaymentMenuSelection(option.label, option.code)
@@ -1090,8 +1232,21 @@ class CliSiTefTransactionController(
                 if (operationMode == TefOperationMode.SALE) {
                     backToPreviousMenuAvailable.set(true)
                     applyBackButtonAfterMenuSelection(option.label)
+                    // À vista / parcelas / pré-datado → janela de GetPIN.
+                    if (isInstallmentOrPinMenuOption(option.label)) {
+                        pinEntryArmed.set(true)
+                        if (GertecTefPinpad.shouldOpenNumericPinpadBeforeContinue()) {
+                            val code = option.code
+                            Thread({
+                                GertecTefPinpad.preparePinEntry(activity, cliSiTef)
+                                activity.runOnUiThread {
+                                    if (!activity.isFinishing) continueWith(code)
+                                }
+                            }, "gpos700-pin-before-continue").start()
+                            return@setOnClickListener
+                        }
+                    }
                 }
-                showOperatorMessage(option.label)
                 continueWith(option.code)
             }
             buttonContainer.addView(button)
@@ -1113,15 +1268,107 @@ class CliSiTefTransactionController(
             setBackButtonVisible(false)
         }
         operatorCard.visibility = android.view.View.GONE
+        operatorCard.isClickable = false
         pixCard.visibility = android.view.View.GONE
+        pixCard.isClickable = false
+        activity.findViewById<android.view.View?>(R.id.panelTefCancelConfirm)?.visibility =
+            android.view.View.GONE
         menuCard.visibility = android.view.View.VISIBLE
+        menuCard.isClickable = false
+        menuCard.bringToFront()
+        val density = activity.resources.displayMetrics.density
+        menuCard.elevation = 16f * density
+        menuCard.translationZ = 16f * density
+        // Cancelar continua acima do menu, só na faixa de baixo.
+        activity.findViewById<android.view.View?>(R.id.containerTefBottomActions)?.bringToFront()
         cancelButton.bringToFront()
         cancelButton.text = activity.getString(R.string.tef_menu_cancel)
         cancelButton.isEnabled = true
+        // GPOS720: o pinpad Setis cobre o menu. GPOS700: não esconder — o
+        // fragmento é o pinpad interno e o débito cai em erro 31.
+        if (GertecTefPinpad.shouldHidePinpadDuringAppMenu()) {
+            scheduleUnblockMenuTouches()
+        }
+    }
+
+    /**
+     * Enquanto o menu crédito/débito está na tela, o pinpad do GPOS720 pode
+     * esperar no thread principal (a lista aparece e o toque não entra) ou
+     * cobrir os botões. Uma thread à parte solta essa espera e esconde a janela.
+     * hidePinpad não entra aqui: ele manda cancelar e a venda aborta.
+     */
+    private fun scheduleUnblockMenuTouches() {
+        if (menuTouchWatchdog?.isAlive == true) return
+        val thread = Thread({
+            while (menuDialogOpen.get() && !activity.isFinishing) {
+                releasePinpadCoveringMenu()
+                try {
+                    Thread.sleep(200)
+                } catch (_: InterruptedException) {
+                    break
+                }
+            }
+        }, "gpos720-menu-touch")
+        menuTouchWatchdog = thread
+        thread.isDaemon = true
+        thread.start()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun releasePinpadCoveringMenu() {
+        val pinpad = try {
+            activity.fragmentManager.findFragmentByTag("Pinpad")
+        } catch (error: Throwable) {
+            Log.w(TAG, "releasePinpadCoveringMenu", error)
+            null
+        } ?: return
+        try {
+            pinpad.javaClass
+                .getMethod("setPinpadVisible", java.lang.Boolean.TYPE)
+                .invoke(null, true)
+            synchronized(pinpad) {
+                (pinpad as java.lang.Object).notifyAll()
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "releasePinpadCoveringMenu notify", error)
+        }
+        activity.runOnUiThread {
+            if (!menuDialogOpen.get() || activity.isFinishing) return@runOnUiThread
+            try {
+                val dialog = (pinpad as? android.app.DialogFragment)?.dialog ?: return@runOnUiThread
+                dialog.window?.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        android.view.WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                )
+                if (dialog.isShowing) {
+                    dialog.hide()
+                }
+            } catch (error: Throwable) {
+                Log.w(TAG, "releasePinpadCoveringMenu hide", error)
+            }
+        }
+    }
+
+    /** O menu fechou: o próximo cartão/senha pode abrir o pinpad de novo. */
+    @Suppress("DEPRECATION")
+    private fun allowPinpadToOpenAgain() {
+        try {
+            val pinpad = activity.fragmentManager.findFragmentByTag("Pinpad") ?: return
+            pinpad.javaClass
+                .getMethod("setPinpadVisible", java.lang.Boolean.TYPE)
+                .invoke(null, false)
+        } catch (error: Throwable) {
+            Log.w(TAG, "allowPinpadToOpenAgain", error)
+        }
     }
 
     private fun hideInlineMenuOptions() {
         menuDialogOpen.set(false)
+        menuTouchWatchdog?.interrupt()
+        menuTouchWatchdog = null
+        if (GertecTefPinpad.shouldHidePinpadDuringAppMenu()) {
+            allowPinpadToOpenAgain()
+        }
         val menuCard = activity.findViewById<android.view.View?>(R.id.cardTefMenuOptions)
         val buttonContainer = activity.findViewById<LinearLayout?>(R.id.containerMenuButtons)
         val operatorCard = activity.findViewById<android.view.View?>(R.id.cardOperatorMessage)
@@ -1219,6 +1466,17 @@ class CliSiTefTransactionController(
     private fun isChequePaymentMenuOption(label: String): Boolean {
         val normalized = normalizeTefText(label)
         return normalized.contains("cheque")
+    }
+
+    /** Menu pós-cartão que precede a senha (À Vista, parcelas, pré-datado). */
+    private fun isInstallmentOrPinMenuOption(label: String): Boolean {
+        val normalized = normalizeTefText(label)
+        return normalized.contains("vista") ||
+            normalized.contains("parcel") ||
+            normalized.contains("pre-dat") ||
+            normalized.contains("predat") ||
+            normalized.contains("administradora") ||
+            normalized.contains("estabelecimento")
     }
 
     private fun isNonCardPaymentMenuOption(label: String): Boolean {
@@ -1516,26 +1774,46 @@ class CliSiTefTransactionController(
                 supervisorPasswordMinLength = 0
             }
 
-            try {
-                cliSiTef.setActivity(activity)
-                val result = cliSiTef.continueTransaction(payload)
-                Log.d(TAG, "continueTransaction([$payload])=$result")
-                when (result) {
-                    CliSiTefConstants.CONTINUA -> appendStatus("Processando…")
-                    0 -> appendStatus("continue OK")
-                    else -> {
-                        if (result < 0) {
-                            finishWithError(describeTransactionError(result))
-                        } else {
-                            appendStatus("continue=$result")
+            continueTransactionSync(payload)
+        }
+    }
+
+    /**
+     * Continua a transação na thread atual (listener CliSiTef). Usar no CMD_ABORT
+     * para não disputar a main com o DialogFragment do pinpad.
+     */
+    private fun continueTransactionSync(payload: String) {
+        if (!running.get() || activity.isFinishing || settled.get()) return
+        try {
+            val result = cliSiTef.continueTransaction(payload)
+            Log.d(TAG, "continueTransaction([$payload])=$result")
+            when (result) {
+                CliSiTefConstants.CONTINUA ->
+                    dispatchOnMain { appendStatus("Processando…") }
+                0 ->
+                    dispatchOnMain { appendStatus("continue OK") }
+                else -> {
+                    if (closingLeftoverInteractive || ignoreStrayInteractive) {
+                        Log.w(TAG, "continue durante close code=$result")
+                        return
+                    }
+                    if (!settled.get()) {
+                        val fallback = resolveStage1FailureMessage(result)
+                            .ifBlank { describeTransactionError(result) }
+                        dispatchOnMain {
+                            finishInteractiveStageFailure(
+                                result,
+                                resolveFinishErrorMessage(fallback)
+                            )
                         }
                     }
                 }
-            } catch (error: Throwable) {
-                Log.e(TAG, "continueTransaction native error", error)
-                if (!settled.get()) {
-                    finishWithError(describeNativeError(error))
-                }
+            }
+        } catch (error: Throwable) {
+            Log.e(TAG, "continueTransaction native error", error)
+            if (closingLeftoverInteractive || ignoreStrayInteractive) return
+            if (!settled.get()) {
+                dispatchOnMain { finishWithError(describeNativeError(error)) }
             }
         }
     }
@@ -1599,17 +1877,20 @@ class CliSiTefTransactionController(
         // "Transação/Operação cancelada" do SiTef após a negação NÃO pode
         // sobrescrever o texto real do emissor (código / "Erro de simulação").
         if (isGenericCancelMessage(trimmed)) return
+        // Não gravar título/opção de menu ("A Vista", "Cartao de Debito", …).
+        if (isMenuOptionLabel(trimmed)) return
 
         val previous = lastMeaningfulSitefMessage
         if (previous.isNotBlank() &&
-            (denialFlowActive.get() || isDenialMessage(previous)) &&
-            !isDenialMessage(trimmed)
+            (denialFlowActive.get() || isDenialMessage(previous) || isPinpadErrorMessage(previous)) &&
+            !isDenialMessage(trimmed) &&
+            !isPinpadErrorMessage(trimmed)
         ) {
             return
         }
 
         lastMeaningfulSitefMessage = trimmed
-        if (isDenialMessage(trimmed)) {
+        if (isDenialMessage(trimmed) || isPinpadErrorMessage(trimmed)) {
             denialFlowActive.set(true)
         }
     }
@@ -1680,7 +1961,8 @@ class CliSiTefTransactionController(
 
     /** Durante encerramento/cancelamento/confirmação de pendências, não abrir diálogos. */
     private fun shouldAutoContinueDuringFinalize(): Boolean =
-        abortRequested.get() || awaitingCancelFinish || confirmingPendingAfterSuccess
+        abortRequested.get() || awaitingCancelFinish || confirmingPendingAfterSuccess ||
+            closingLeftoverInteractive || ignoreStrayInteractive
 
     /**
      * Bloqueia menu/senha/confirmação na UI após cancelamento no pinpad ou sessão
@@ -1710,6 +1992,8 @@ class CliSiTefTransactionController(
             normalized.contains("recus") ||
             normalized.contains("nao aprov") ||
             normalized.contains("desfaz") ||
+            (normalized.contains("invalida") && normalized.contains("transac")) ||
+            normalized.contains("senha bloqueada") ||
             normalized.contains("erro de simulacao") ||
             normalized.contains("erro simulacao") ||
             normalized.contains("simulacao 04") ||
@@ -1721,7 +2005,43 @@ class CliSiTefTransactionController(
             normalized.contains("cod. resposta") ||
             normalized.contains("cod resposta") ||
             (normalized.contains("resposta") &&
-                (normalized.contains("codigo") || normalized.contains("cod")))
+                (normalized.contains("codigo") || normalized.contains("cod"))) ||
+            isPinpadErrorMessage(message)
+    }
+
+    /** Erro de rotina/comunicação do pinpad (ex.: "40 - Erro Pinpad"). */
+    private fun isPinpadErrorMessage(message: String): Boolean {
+        val normalized = normalizeTefText(message)
+        if (normalized.isBlank()) return false
+        return normalized.contains("erro pinpad") ||
+            normalized.contains("erro no pinpad") ||
+            normalized.contains("falha pinpad") ||
+            normalized.contains("senha bloqueada") ||
+            Regex("""^\s*\d+\s*-\s*erro\s+pinpad""", RegexOption.IGNORE_CASE)
+                .containsMatchIn(message)
+    }
+
+    /** Opção curta de menu SiTef — não usar como motivo de falha. */
+    private fun isMenuOptionLabel(message: String): Boolean {
+        val trimmed = message.trim()
+        if (trimmed.isBlank() || trimmed.length > 48) return false
+        if (trimmed.contains('\n') || trimmed.contains(';')) return false
+        val normalized = normalizeTefText(trimmed)
+        // Status intermediário do pinpad, não motivo de falha.
+        if (normalized.startsWith("selecionado")) return true
+        if (trimmed.contains(':') && !normalized.startsWith("selecionado")) return false
+        return normalized == "a vista" ||
+            normalized == "pre-datado" ||
+            normalized == "pre datado" ||
+            normalized == "cheque" ||
+            normalized == "cartao de debito" ||
+            normalized == "cartao de credito" ||
+            normalized == "cartao combustivel" ||
+            normalized == "carteira digital" ||
+            normalized == "debito" ||
+            normalized == "credito" ||
+            normalized == "pix" ||
+            normalized.startsWith("selecione")
     }
 
     private fun isPinpadCancelMessage(message: String): Boolean {
@@ -1758,19 +2078,24 @@ class CliSiTefTransactionController(
         val denialStored = lastMeaningfulSitefMessage.trim()
         if (denialStored.isNotBlank() &&
             !isGenericCancelMessage(denialStored) &&
-            (denialFlowActive.get() || isDenialMessage(denialStored))
+            !isMenuOptionLabel(denialStored) &&
+            (denialFlowActive.get() || isDenialMessage(denialStored) || isPinpadErrorMessage(denialStored))
         ) {
             return denialStored
         }
 
-        val fromHost = denialStored.ifBlank { lastOperatorPrompt.trim() }
+        val fromHost = listOf(denialStored, lastOperatorPrompt.trim())
+            .firstOrNull { msg ->
+                msg.isNotBlank() &&
+                    !isMenuOptionLabel(msg) &&
+                    !isGenericCancelMessage(msg) &&
+                    !isPasswordEntryPrompt(msg) &&
+                    !isCardPresentmentPrompt(msg)
+            }
+            .orEmpty()
 
         val hostLooksDenial = fromHost.isNotBlank() &&
-            !isPasswordEntryPrompt(fromHost) &&
-            !isCardPresentmentPrompt(fromHost) &&
-            !isGenericCancelMessage(fromHost) &&
-            (isDenialMessage(fromHost) ||
-                (!abortRequested.get() && !isPinpadCancelMessage(fromHost)))
+            (isDenialMessage(fromHost) || isPinpadErrorMessage(fromHost))
 
         if (hostLooksDenial) {
             return fromHost
@@ -1782,9 +2107,6 @@ class CliSiTefTransactionController(
 
         // Códigos positivos / negação padrão SiTef: preferir host se houver.
         if (fromHost.isNotBlank() &&
-            !isPasswordEntryPrompt(fromHost) &&
-            !isCardPresentmentPrompt(fromHost) &&
-            !isGenericCancelMessage(fromHost) &&
             !isPinpadCancelMessage(fromHost) &&
             resultCode != -2 &&
             resultCode != -6
@@ -1850,23 +2172,74 @@ class CliSiTefTransactionController(
             cliSiTef.setActivity(activity)
             runCatching { cliSiTef.submitPendingMessages() }
 
-            val probeCode = probeConfigure()
+            val comExterna = TefPreferences.getTefComExterna(activity)
             val pendingRef = findPendingFiscalRef()
+
+            // TLS GWP / GSurf: NÃO fazer probeConfigure + liberate com
+            // abortTransaction antes do start — na 2ª venda isso aborta em
+            // "Conectando servidor". configureAndStart já refaz o configure.
+            if (isExternalTlsComExterna(comExterna)) {
+                if (TefSessionGuard.needsCleanup || pendingRef != null) {
+                    Log.w(
+                        TAG,
+                        "ensureReady TLS cleanup needsCleanup=${TefSessionGuard.needsCleanup} " +
+                            "pending=${pendingRef?.coupon} — unlock sem abort",
+                    )
+                    Thread({
+                        unlockStuckInteractive()
+                        TefSessionGuard.markSessionClean()
+                        activity.runOnUiThread {
+                            if (!activity.isFinishing) onReady()
+                        }
+                    }, "tef-tls-unlock").start()
+                } else {
+                    onReady()
+                }
+                return
+            }
+
+            // GPOS700: nunca probe/liberate com abort (mesmo com COMEXTERNA=0).
+            if (!GertecTefPinpad.shouldProbeAndLiberateBeforeSale()) {
+                if (TefSessionGuard.needsCleanup || pendingRef != null) {
+                    Log.w(
+                        TAG,
+                        "ensureReady GPOS700 cleanup pending=${pendingRef?.coupon} — unlock sem abort",
+                    )
+                    Thread({
+                        unlockStuckInteractive()
+                        TefSessionGuard.markSessionClean()
+                        activity.runOnUiThread {
+                            if (!activity.isFinishing) onReady()
+                        }
+                    }, "tef-gpos700-unlock").start()
+                } else {
+                    onReady()
+                }
+                return
+            }
+
+            val probeCode = probeConfigure()
             Log.d(
                 TAG,
                 "ensureReady probe=$probeCode needsCleanup=${TefSessionGuard.needsCleanup} " +
                     "pendingRef=${pendingRef?.coupon}"
             )
 
-            // Função 130 (tratamento de pendências): a própria transação resolve/confirma as
-            // transações pendentes. NÃO liberar/abortar o terminal aqui — isso cancelaria a
-            // venda pendente e deixaria a sessão em -12 ("Liberando terminal TEF" em loop).
-            // Basta o configure estar OK para seguir direto ao startTransaction(130).
+            // Tratamento de pendências: nunca abortar/estornar para "liberar" o
+            // terminal. liberateTerminalThen chama abort + finishTransaction(0) e
+            // cancela a venda que o operador acabou de ver como "verificando".
             if (operationMode == TefOperationMode.ADMIN_PENDING) {
-                if (probeCode == CliSiTef.CONFIG_OK) {
-                    onReady()
-                } else {
-                    liberateTerminalThen(onReady)
+                if (probeCode != CliSiTef.CONFIG_OK) {
+                    Log.w(TAG, "pending probe=$probeCode — segue sem abortar")
+                }
+                onReady()
+                return
+            }
+
+            if (probeCode == -12) {
+                Log.w(TAG, "ensureReady probe=-12 — encerra iterativo sem estornar")
+                closeLeftoverInteractive {
+                    if (!activity.isFinishing) onReady()
                 }
                 return
             }
@@ -1896,6 +2269,12 @@ class CliSiTefTransactionController(
         )
     }
 
+    /** COMEXTERNA 1=GSurf, 2=TLS GWP / Five Service. */
+    private fun isExternalTlsComExterna(comExterna: String): Boolean {
+        val value = comExterna.trim()
+        return value == "1" || value == "2"
+    }
+
     /**
      * Após aprovação (stage 2) e impressão do comprovante, confirma cupons ainda
      * pendentes no host SiTef antes de gravar no servidor e encerrar a venda.
@@ -1915,7 +2294,13 @@ class CliSiTefTransactionController(
      */
     private fun resolvePendingTransactions() {
         showOperatorMessage(activity.getString(R.string.tef_pending_checking))
-        val hasPending = collectKnownFiscalRefs().any { countPendingTransactionsSafe(it) > 0 }
+        val counts = collectKnownFiscalRefs().map { countPendingTransactionsSafe(it) }
+        if (counts.any { it < 0 }) {
+            Log.w(TAG, "resolvePending: consulta falhou counts=$counts")
+            finishWithError(activity.getString(R.string.tef_pending_query_failed))
+            return
+        }
+        val hasPending = counts.any { it > 0 }
         if (!hasPending) {
             Log.d(TAG, "resolvePending: nenhuma transação pendente no host")
             pendingTransactionsWereResolved = false
@@ -2064,10 +2449,14 @@ class CliSiTefTransactionController(
     private fun countPendingTransactionsSafe(ref: TefFiscalRef): Int {
         return try {
             cliSiTef.setActivity(activity)
-            cliSiTef.getQttPendingTransactions(ref.date, ref.coupon)
+            val count = cliSiTef.getQttPendingTransactions(ref.date, ref.coupon)
+            if (count < 0) {
+                Log.w(TAG, "getQttPendingTransactions cupom=${ref.coupon} code=$count")
+            }
+            count
         } catch (error: Throwable) {
             Log.w(TAG, "getQttPendingTransactions cupom=${ref.coupon}", error)
-            0
+            -1
         }
     }
 
@@ -2298,6 +2687,127 @@ class CliSiTefTransactionController(
         }
     }
 
+    /**
+     * Encerra só o iterativo preso (erro -12). Não chama finishTransaction(0) no cupom,
+     * para não estornar a venda nem fechar a tela antes de conectar ao servidor.
+     */
+    private fun traceTef(line: String) {
+        Log.d(TAG, line)
+        TefTraceLog.write(activity, line)
+    }
+
+    /**
+     * Fecha o processo iterativo que ficou aberto depois de uma venda já confirmada.
+     * Usa finishTransaction(1) com cupom vazio — não chama finishTransaction(0),
+     * então a venda aprovada no host não é estornada.
+     */
+    private fun closeLeftoverInteractive(onDone: () -> Unit) {
+        if (activity.isFinishing) {
+            onDone()
+            return
+        }
+        try {
+            cliSiTef.setActivity(activity)
+            runCatching { cliSiTef.submitPendingMessages() }
+            val probe = probeConfigure()
+            if (probe != -12) {
+                Log.d(TAG, "closeLeftover: configure=$probe — iterativo livre")
+                onDone()
+                return
+            }
+            Log.w(TAG, "closeLeftover: configure=-12 — encerrando iterativo sem estornar")
+            beginLeftoverClose(onDone)
+        } catch (error: Throwable) {
+            Log.w(TAG, "closeLeftoverInteractive", error)
+            onDone()
+        }
+    }
+
+    private fun beginLeftoverClose(onDone: () -> Unit) {
+        closingLeftoverInteractive = true
+        ignoreStrayInteractive = false
+        leftoverInteractiveOnDone = onDone
+        val result = try {
+            cliSiTef.setActivity(activity)
+            cliSiTef.finishTransaction(
+                this,
+                CliSiTefConstants.CONFIRM_TRANSACTION,
+                "",
+                "",
+                "",
+                "",
+            )
+        } catch (error: Throwable) {
+            Log.w(TAG, "closeLeftover finish", error)
+            finishLeftoverClose()
+            return
+        }
+        Log.d(TAG, "closeLeftover finish=$result")
+        when (result) {
+            0 -> finishLeftoverClose()
+            CliSiTefConstants.CONTINUA -> scheduleLeftoverCloseWatchdog()
+            -12 -> {
+                runCatching { cliSiTef.abortTransaction(-1) }
+                val retry = runCatching {
+                    cliSiTef.finishTransaction(
+                        this,
+                        CliSiTefConstants.CONFIRM_TRANSACTION,
+                        "",
+                        "",
+                        "",
+                        "",
+                    )
+                }.getOrDefault(-1)
+                Log.d(TAG, "closeLeftover retry=$retry")
+                when (retry) {
+                    0 -> finishLeftoverClose()
+                    CliSiTefConstants.CONTINUA, -12 -> scheduleLeftoverCloseWatchdog()
+                    else -> finishLeftoverClose()
+                }
+            }
+            else -> finishLeftoverClose()
+        }
+    }
+
+    private fun finishLeftoverClose() {
+        val done = leftoverInteractiveOnDone ?: return
+        leftoverInteractiveOnDone = null
+        closingLeftoverInteractive = false
+        ignoreStrayInteractive = true
+        cancelLeftoverCloseWatchdog()
+        mainHandler.post { done() }
+    }
+
+    private fun scheduleLeftoverCloseWatchdog() {
+        cancelLeftoverCloseWatchdog()
+        val runnable = Runnable {
+            leftoverCloseWatchdogRunnable = null
+            if (!closingLeftoverInteractive) return@Runnable
+            Log.w(TAG, "closeLeftover timeout — segue sem estornar")
+            finishLeftoverClose()
+        }
+        leftoverCloseWatchdogRunnable = runnable
+        activity.window.decorView.postDelayed(runnable, LEFTOVER_CLOSE_TIMEOUT_MS)
+    }
+
+    private fun cancelLeftoverCloseWatchdog() {
+        leftoverCloseWatchdogRunnable?.let { activity.window.decorView.removeCallbacks(it) }
+        leftoverCloseWatchdogRunnable = null
+    }
+
+    private fun unlockStuckInteractive() {
+        try {
+            cliSiTef.setActivity(activity)
+            runCatching { cliSiTef.submitPendingMessages() }
+            // Sem abortTransaction(-1): isso era o que abortava a venda e voltava
+            // aos botões antes da tela de comunicação.
+            val finishCode = runCatching { finalizeFunctionSync() }.getOrNull()
+            Log.d(TAG, "unlockStuckInteractive finish=$finishCode")
+        } catch (error: Throwable) {
+            Log.w(TAG, "unlockStuckInteractive", error)
+        }
+    }
+
     private fun finalizeFunctionSync(): Int {
         return try {
             cliSiTef.setActivity(activity)
@@ -2484,11 +2994,14 @@ class CliSiTefTransactionController(
             cliSiTef.setActivity(activity)
             val pending = cliSiTef.getQttPendingTransactions(saved.date, saved.coupon)
             Log.d(TAG, "clearFiscalIfNoPending cupom=${saved.coupon} pending=$pending")
+            // <=0: sem pendência. <0 (ex.: -13 em TLS): consulta falhou — cupom da
+            // tentativa negada não deve ficar preso para a próxima venda.
             if (pending <= 0) {
-                TefPendingFiscal.clearAll(activity)
+                TefPendingFiscal.clear(activity)
             }
         } catch (error: Throwable) {
             Log.w(TAG, "clearFiscalIfNoPending", error)
+            TefPendingFiscal.clear(activity)
         }
     }
 
@@ -2530,11 +3043,18 @@ class CliSiTefTransactionController(
         return String(input, charset).trim()
     }
 
+    private fun describePendingConfigureError(code: Int): String {
+        return activity.getString(
+            R.string.tef_pending_configure_failed,
+            describeConfigureError(code),
+        )
+    }
+
     private fun describeConfigureError(code: Int): String = when (code) {
         CliSiTef.CONFIG_ERROR_INVALID_SITEF_ADDRESS -> "Endereço SiTef inválido ($code)."
         CliSiTef.CONFIG_ERROR_INVALID_STORE_ID -> "Código da loja inválido ($code)."
         CliSiTef.CONFIG_ERROR_INVALID_TERMINAL_ID -> "Terminal inválido ($code)."
-        -12 -> "Transação TEF anterior pendente ($code). Reinicie o app."
+        -12 -> "Transação TEF anterior pendente ($code). Tente a venda novamente."
         else -> "Erro configure CliSiTef: $code"
     }
 
@@ -2896,42 +3416,10 @@ class CliSiTefTransactionController(
     }
 
     private fun confirmApprovedTransaction() {
-        // Homologação 5.1.1: a via do estabelecimento (comprovante TEF) já chega no estágio 1.
-        // Em vendas, imprimimos ANTES de confirmar: finishTransaction(1) só é chamado depois da
-        // impressão bem-sucedida; se a impressão falhar, chamamos finishTransaction(0) (estorno).
-        if (operationMode != TefOperationMode.SALE) {
-            showOperatorMessage(activity.getString(R.string.tef_confirming_transaction))
-            sendStage1Finish(CliSiTefConstants.CONFIRM_TRANSACTION)
-            return
-        }
-
-        Thread({
-            // O comprovante já foi capturado no estágio 1; imprime a via do estabelecimento.
-            ensureMerchantReceiptPrintedBeforeServer()
-            val merchantPrintFailed = receipt.hasMerchantCopy() && !merchantReceiptPrinted
-            val confirm = if (merchantPrintFailed) {
-                CliSiTefConstants.CANCEL_TRANSACTION
-            } else {
-                CliSiTefConstants.CONFIRM_TRANSACTION
-            }
-            if (merchantPrintFailed) {
-                saleReversedForPrintFailure = true
-                Log.w(TAG, "comprovante TEF não impresso — estornando venda no finishTransaction(0)")
-            }
-            pendingFinalizeConfirm = confirm
-            activity.runOnUiThread {
-                showOperatorMessage(
-                    activity.getString(
-                        if (merchantPrintFailed) {
-                            R.string.tef_reversing_sale
-                        } else {
-                            R.string.tef_confirming_transaction
-                        }
-                    )
-                )
-                sendStage1Finish(confirm)
-            }
-        }, "tef-print-before-confirm").start()
+        // finishTransaction(1) antes da impressão. A via do estabelecimento sai no estágio 2.
+        showOperatorMessage(activity.getString(R.string.tef_confirming_transaction))
+        pendingFinalizeConfirm = CliSiTefConstants.CONFIRM_TRANSACTION
+        sendStage1Finish(CliSiTefConstants.CONFIRM_TRANSACTION)
     }
 
     /** Estágio 1 (iterativo): finaliza a transação corrente confirmando (1) ou estornando (0). */
@@ -2979,24 +3467,30 @@ class CliSiTefTransactionController(
                 activity.runOnUiThread {
                     when {
                         operationMode.skipsPendingConfirmOnFinalize() -> {
-                            TefSessionGuard.markSessionClean()
-                            TefPendingFiscal.clearAll(activity)
-                            confirmLatch.countDown()
-                        }
-                        merchantPrintFailed -> {
-                            Log.w(TAG, "comprovante TEF não impresso — estornando venda")
-                            reverseCurrentSaleForPrintFailure {
-                                saleReversedForPrintFailure = true
+                            closeLeftoverInteractive {
                                 TefSessionGuard.markSessionClean()
                                 TefPendingFiscal.clearAll(activity)
                                 confirmLatch.countDown()
                             }
                         }
+                        merchantPrintFailed -> {
+                            Log.w(TAG, "comprovante TEF não impresso — estornando venda")
+                            reverseCurrentSaleForPrintFailure {
+                                saleReversedForPrintFailure = true
+                                closeLeftoverInteractive {
+                                    TefSessionGuard.markSessionClean()
+                                    TefPendingFiscal.clearAll(activity)
+                                    confirmLatch.countDown()
+                                }
+                            }
+                        }
                         else -> {
                             confirmRemainingPendingTransactions {
-                                TefSessionGuard.markSessionClean()
-                                TefPendingFiscal.clearAll(activity)
-                                confirmLatch.countDown()
+                                closeLeftoverInteractive {
+                                    TefSessionGuard.markSessionClean()
+                                    TefPendingFiscal.clearAll(activity)
+                                    confirmLatch.countDown()
+                                }
                             }
                         }
                     }
@@ -3542,34 +4036,63 @@ class CliSiTefTransactionController(
             finishWithSuccess(successMessage)
             return
         }
-        if (transactionResult.chaveNota.isBlank() && !cartaoMovimentoRegistrado) {
+
+        val chaveNota = transactionResult.chaveNota.trim()
+        if (chaveNota.isBlank()) {
+            val missing = if (cartaoMovimentoRegistrado) {
+                activity.getString(R.string.tef_print_nfe_chave_missing)
+            } else {
+                activity.getString(R.string.tef_print_nfe_unavailable)
+            }
+            Log.w(TAG, "completeTransactionFlow sem chave — $missing")
+            appendStatus(missing)
+            showOperatorMessage(missing)
+            Toast.makeText(activity, missing, Toast.LENGTH_LONG).show()
             finishWithSuccess(successMessage)
             return
         }
+
         promptNfeCupomPrint()
     }
 
     private fun promptNfeCupomPrint() {
-        showTrackedDialog(
-            AlertDialog.Builder(activity)
-                .setTitle(R.string.tef_print_nfe_title)
-                .setMessage(R.string.tef_print_nfe_message)
-                .setCancelable(false)
-                .setPositiveButton(R.string.yes) { dialog, _ ->
-                    dialog.dismiss()
-                    printNfeCupomAsync {
+        if (activity.isFinishing) {
+            finishWithSuccess("Transação TEF concluída com sucesso.")
+            return
+        }
+        try {
+            showTrackedDialog(
+                AlertDialog.Builder(activity)
+                    .setTitle(R.string.tef_print_nfe_title)
+                    .setMessage(R.string.tef_print_nfe_message)
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.yes) { dialog, _ ->
+                        dialog.dismiss()
+                        printNfeCupomAsync {
+                            finishWithSuccess("Transação TEF concluída com sucesso.")
+                        }
+                    }
+                    .setNegativeButton(R.string.no) { dialog, _ ->
+                        dialog.dismiss()
                         finishWithSuccess("Transação TEF concluída com sucesso.")
                     }
-                }
-                .setNegativeButton(R.string.no) { dialog, _ ->
-                    dialog.dismiss()
-                    finishWithSuccess("Transação TEF concluída com sucesso.")
-                }
-        )
+            )
+        } catch (error: Throwable) {
+            Log.e(TAG, "promptNfeCupomPrint dialog", error)
+            // Sem diálogo: tenta imprimir direto (Delphi após "Sim").
+            Toast.makeText(
+                activity,
+                activity.getString(R.string.tef_printing_nfe),
+                Toast.LENGTH_SHORT,
+            ).show()
+            printNfeCupomAsync {
+                finishWithSuccess("Transação TEF concluída com sucesso.")
+            }
+        }
     }
 
     private fun printNfeCupomAsync(onComplete: () -> Unit) {
-        val chaveNota = transactionResult.chaveNota
+        val chaveNota = transactionResult.chaveNota.trim()
         if (chaveNota.isBlank()) {
             val message = activity.getString(R.string.tef_print_nfe_chave_missing)
             appendStatus(message)
@@ -3580,38 +4103,68 @@ class CliSiTefTransactionController(
         }
 
         showOperatorMessage(activity.getString(R.string.tef_printing_nfe))
-        val waitDialog = WaitDialog.show(activity, R.string.tef_printing_nfe)
+        val waitDialog = try {
+            WaitDialog.show(activity, R.string.tef_printing_nfe)
+        } catch (error: Throwable) {
+            Log.w(TAG, "WaitDialog printNfe", error)
+            null
+        }
 
         Thread({
+            var outcomeMessage: String? = null
+            var outcomeOk = false
             try {
                 Log.d(
                     TAG,
                     "printNfeCupom modelo=${NfeChaveAccessKey.modeloFromChave(chaveNota)} " +
-                        "tipo=${NfeChaveAccessKey.documentLabel(chaveNota)}"
+                        "tipo=${NfeChaveAccessKey.documentLabel(chaveNota)} chave=$chaveNota"
                 )
                 val xmlBytes = cartaoRepository.downloadNfeXml(chaveNota)
-                val receipt = NfeXmlReceiptFormatter.formatForThermalPrinter(
+                val fiscalReceipt = NfeXmlReceiptFormatter.formatForThermalPrinter(
                     xmlBytes = xmlBytes,
                     chaveNota = chaveNota,
                 )
-                GertecReceiptPrinter.printNfeCupom(activity, receipt)
-                activity.runOnUiThread {
-                    appendStatus(activity.getString(R.string.tef_print_nfe_success))
+                Log.d(
+                    TAG,
+                    "printNfeCupom format text=${fiscalReceipt.text.length} " +
+                        "after=${fiscalReceipt.textAfterBarCode?.length ?: 0} " +
+                        "qr=${fiscalReceipt.qrCode?.length ?: 0} " +
+                        "barcode=${fiscalReceipt.accessKeyBarCode?.length ?: 0}",
+                )
+                val isNfce = NfeChaveAccessKey.modeloFromChave(chaveNota) != "55"
+                if (isNfce && fiscalReceipt.qrCode.isNullOrBlank()) {
+                    throw IllegalStateException(
+                        "QR Code da NFC-e ausente no XML baixado (chave=$chaveNota).",
+                    )
                 }
+                // GEDI no worker (igual comprovante TEF) — evita deadlock com WaitDialog na UI.
+                GertecReceiptPrinter.printNfeCupom(activity, fiscalReceipt)
+                outcomeOk = true
+                outcomeMessage = activity.getString(R.string.tef_print_nfe_success)
             } catch (error: Throwable) {
                 Log.w(TAG, "printNfeCupomAsync", error)
                 val mapped = GertecReceiptPrinter.mapPrintError(error)
-                val message = mapped.message?.ifBlank { null }
+                outcomeMessage = mapped.message?.ifBlank { null }
                     ?: error.message
-                    ?: activity.getString(R.string.tef_print_nfe_error, "")
-                activity.runOnUiThread {
-                    appendStatus(activity.getString(R.string.tef_print_nfe_error, message))
-                    showOperatorMessage(message)
-                    Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
-                }
+                    ?: activity.getString(R.string.tef_print_nfe_error, "falha desconhecida")
             } finally {
                 activity.runOnUiThread {
-                    waitDialog.dismiss()
+                    try {
+                        waitDialog?.dismiss()
+                    } catch (_: Throwable) {
+                    }
+                    val message = outcomeMessage.orEmpty()
+                    if (message.isNotBlank()) {
+                        appendStatus(
+                            if (outcomeOk) {
+                                message
+                            } else {
+                                activity.getString(R.string.tef_print_nfe_error, message)
+                            }
+                        )
+                        showOperatorMessage(message)
+                        Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
+                    }
                     onComplete()
                 }
             }
@@ -3652,6 +4205,17 @@ class CliSiTefTransactionController(
         onFinished(true, message, transactionResult)
     }
 
+    /**
+     * Estágio 1 ou Continua com retorno != 0: encerra a UI sem finishTransaction.
+     * Evita dupla Finaliza e erro de processo interativo na homologação.
+     */
+    private fun finishInteractiveStageFailure(resultCode: Int, message: String) {
+        Log.d(TAG, "interactiveStageFailure code=$resultCode — sem finalize")
+        clearFiscalIfNoPending()
+        TefSessionGuard.markSessionClean()
+        finishWithError(message)
+    }
+
     private fun finishWithError(message: String) {
         // Durante Voltar, reabre o menu via Sales em vez de ficar reiniciando a mesma sessão.
         if (goingBackToPreviousMenu.get() &&
@@ -3662,6 +4226,8 @@ class CliSiTefTransactionController(
             finishGoBackAndReopenPayment()
             return
         }
+        TefTraceLog.write(activity, "finishWithError $message")
+        pinEntryArmed.set(false)
         if (!settled.compareAndSet(false, true)) return
         supervisorPasswordPending = false
         supervisorPasswordMinLength = 0
@@ -3700,6 +4266,7 @@ class CliSiTefTransactionController(
         private const val MERCHANT_RECEIPT_MAX_WAIT_MS = 45_000L
         private const val MERCHANT_RECEIPT_BLOCK_SERVER_MS = 60_000L
         private const val PENDING_CONFIRM_TIMEOUT_MS = 8000L
+        private const val LEFTOVER_CLOSE_TIMEOUT_MS = 3000L
         private const val CANCEL_FIELDS_MAX_WAIT_MS = 8_000L
         private const val CANCEL_FIELDS_POLL_MS = 150L
         private const val ADMIN_RECEIPT_CAPTURE_MS = 3_000L

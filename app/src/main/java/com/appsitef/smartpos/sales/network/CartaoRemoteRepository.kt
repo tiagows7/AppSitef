@@ -8,48 +8,30 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import java.util.concurrent.TimeUnit
 
 class CartaoRemoteRepository(
     private val context: Context,
 ) {
 
-    private val client = OkHttpClient.Builder().build()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     /**
-     * Delphi: loop com até 10 tentativas — `cartao_movimento`.
-     * Repete também quando o POST retorna OK mas a chave ainda não veio na resposta.
+     * Um único POST de `cartao_movimento`, esperando até 20s.
+     * Se a chave/XML da nota não voltar, não reenvia a venda.
      */
     fun registrarCartaoMovimento(
         request: CartaoMovimentoPostRequest,
-        maxAttempts: Int = 10,
     ): CartaoMovimentoResult {
-        var lastError: Exception? = null
-        var registrado = false
-
-        repeat(maxAttempts) { attempt ->
-            try {
-                val response = postCartaoMovimento(request)
-                registrado = true
-                if (response.chaveNota.isNotBlank()) {
-                    return response.copy(registrado = true)
-                }
-                Log.w(
-                    TAG,
-                    "cartao_movimento tentativa ${attempt + 1}/$maxAttempts sem chave — aguardando…"
-                )
-            } catch (error: Exception) {
-                lastError = error
-                Log.w(TAG, "cartao_movimento tentativa ${attempt + 1}/$maxAttempts falhou", error)
-            }
-            if (attempt < maxAttempts - 1) {
-                Thread.sleep(RETRY_DELAY_MS)
-            }
+        val response = postCartaoMovimento(request)
+        if (response.chaveNota.isBlank()) {
+            Log.w(TAG, "cartao_movimento OK sem chave da nota — não reenvia")
         }
-
-        if (registrado) {
-            return CartaoMovimentoResult(chaveNota = "", registrado = true)
-        }
-        throw lastError ?: IllegalStateException("Erro ao registrar movimento de cartão.")
+        return response.copy(registrado = true)
     }
 
     /**
@@ -93,8 +75,14 @@ class CartaoRemoteRepository(
         return lastResult
     }
 
-    /** Delphi: `SrvMetodosGeraisClient.DownloadFile(CHAVENOTA + '-nfe.xml')`. */
-    fun downloadNfeXml(chaveNota: String): ByteArray {
+    /**
+     * Delphi: `SrvMetodosGeraisClient.DownloadFile(CHAVENOTA + '-nfe.xml')`.
+     * Repete enquanto o arquivo ainda não existe no servidor (comum logo após cartao_movimento).
+     */
+    fun downloadNfeXml(
+        chaveNota: String,
+        maxAttempts: Int = DOWNLOAD_NFE_MAX_ATTEMPTS,
+    ): ByteArray {
         val chave = chaveNota.trim()
         if (chave.isEmpty()) {
             error("Chave da nota não informada.")
@@ -103,8 +91,30 @@ class CartaoRemoteRepository(
         TefPreferences.loadModuloIniIfExists(context)
         val fileName = CartaoUrlBuilder.buildNfeXmlFileName(chave)
         val url = CartaoUrlBuilder.buildDownloadFileUrl(context, fileName)
-        Log.d(TAG, "GET DownloadFile file=$fileName url=$url")
+        var lastError: Exception? = null
 
+        repeat(maxAttempts) { attempt ->
+            try {
+                Log.d(TAG, "GET DownloadFile file=$fileName attempt=${attempt + 1}/$maxAttempts")
+                val xmlBytes = getDownloadFileBytes(url)
+                if (xmlBytes.isNotEmpty()) {
+                    Log.d(TAG, "DownloadFile xmlBytes=${xmlBytes.size}")
+                    return xmlBytes
+                }
+                lastError = IllegalStateException("XML da nota vazio no servidor.")
+            } catch (error: Exception) {
+                lastError = error
+                Log.w(TAG, "DownloadFile tentativa ${attempt + 1}/$maxAttempts falhou", error)
+            }
+            if (attempt < maxAttempts - 1) {
+                Thread.sleep(RETRY_DELAY_MS)
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Erro ao baixar XML da nota.")
+    }
+
+    private fun getDownloadFileBytes(url: String): ByteArray {
         val httpRequest = Request.Builder()
             .url(url)
             .header("Authorization", Credentials.basic(BASIC_USER, BASIC_PASSWORD))
@@ -123,9 +133,7 @@ class CartaoRemoteRepository(
             if (bytes.isEmpty()) {
                 error("XML da nota vazio no servidor.")
             }
-            val xmlBytes = DatasnapDownloadDecoder.decodeToBytes(bytes)
-            Log.d(TAG, "DownloadFile xmlBytes=${xmlBytes.size}")
-            return xmlBytes
+            return DatasnapDownloadDecoder.decodeToBytes(bytes)
         }
     }
 
@@ -212,5 +220,6 @@ class CartaoRemoteRepository(
         private const val BASIC_USER = "modulo-info"
         private const val BASIC_PASSWORD = "@Modulo2023@"
         private const val RETRY_DELAY_MS = 1500L
+        private const val DOWNLOAD_NFE_MAX_ATTEMPTS = 10
     }
 }

@@ -8,12 +8,17 @@ import okhttp3.Credentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
+import java.util.concurrent.TimeUnit
 
 class AbastecimentoRemoteRepository(
     private val context: Context
 ) {
 
-    private val client = OkHttpClient.Builder().build()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(20, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
+        .build()
 
     fun buscarAbastecimentos(bico: String, operador: String = ""): List<Abastecimento> {
         val url = AbastecimentoUrlBuilder.buildAbastecimentosUrl(context, bico, operador)

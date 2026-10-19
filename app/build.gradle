@@ -20,14 +20,28 @@ android {
         applicationId "com.appsitef.smartpos"
         minSdk 24
         targetSdk 34
-        versionCode 2
-        versionName "1.0.1"
+        versionCode 8
+        versionName "1.0.7"
 
         ndk {
             abiFilters "armeabi-v7a"
         }
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    flavorDimensions "device"
+    productFlavors {
+        gpos720 {
+            dimension "device"
+            buildConfigField "String", "GERTEC_MODEL", "\"GPOS720\""
+            buildConfigField "boolean", "GERTEC_USES_SETIS_PPCOMP", "true"
+        }
+        gpos700 {
+            dimension "device"
+            buildConfigField "String", "GERTEC_MODEL", "\"GPOS700\""
+            buildConfigField "boolean", "GERTEC_USES_SETIS_PPCOMP", "false"
+        }
     }
 
     buildFeatures {
@@ -67,35 +81,47 @@ android {
     }
 }
 
-tasks.register("renameDebugApk") {
+tasks.register("renameDebugApks") {
     doLast {
-        def outDir = file("${buildDir}/outputs/apk/debug")
-        def from = new File(outDir, "app-debug.apk")
-        def to = new File(outDir, "siscom-pos-debug.apk")
-        if (!from.exists()) {
-            logger.warn("renameDebugApk: ${from.name} não encontrado")
-            return
+        def outDir = file("${buildDir}/outputs/apk")
+        ["gpos720", "gpos700"].each { flavor ->
+            def flavorDir = new File(outDir, "${flavor}/debug")
+            def from = new File(flavorDir, "app-${flavor}-debug.apk")
+            def to = new File(flavorDir, "siscom-pos-${flavor}-debug.apk")
+            if (!from.exists()) {
+                logger.lifecycle("renameDebugApks: ${from} não encontrado (flavor não montado)")
+                return
+            }
+            to.parentFile?.mkdirs()
+            from.withInputStream { input ->
+                to.withOutputStream { output -> input.transferTo(output) }
+            }
+            if (to.length() != from.length() || to.length() < 1_000_000L) {
+                throw new GradleException(
+                    "renameDebugApks: cópia inválida ${to.name} (${to.length()} bytes). Esperado ~${from.length()}."
+                )
+            }
+            if (!from.delete()) {
+                logger.warn("renameDebugApks: não removeu ${from.name}")
+            }
+            logger.lifecycle("renameDebugApks: ${to} (${to.length()} bytes)")
         }
-        // Windows: File.renameTo pode falhar/deixar APK truncado; copiar é mais seguro.
-        to.parentFile?.mkdirs()
-        from.withInputStream { input ->
-            to.withOutputStream { output -> input.transferTo(output) }
-        }
-        if (to.length() != from.length() || to.length() < 1_000_000L) {
-            throw new GradleException(
-                "renameDebugApk: cópia inválida (${to.length()} bytes). Esperado ~${from.length()}."
-            )
-        }
-        if (!from.delete()) {
-            logger.warn("renameDebugApk: não removeu ${from.name}")
-        }
-        logger.lifecycle("renameDebugApk: ${to.name} (${to.length()} bytes)")
     }
 }
 
 afterEvaluate {
+    dependencies {
+        add("gpos720DebugImplementation", fileTree(dir: "libs/gpos720-debug", include: ["*.jar"]))
+        add("gpos720ReleaseImplementation", fileTree(dir: "libs/gpos720-release", include: ["*.jar"]))
+    }
+    tasks.matching {
+        it.name == "assembleGpos720Debug" || it.name == "assembleGpos700Debug"
+    }.configureEach {
+        finalizedBy("renameDebugApks")
+    }
+    // Compat: assembleDebug gera os dois flavors e renomeia os APKs.
     tasks.matching { it.name == "assembleDebug" }.configureEach {
-        finalizedBy("renameDebugApk")
+        finalizedBy("renameDebugApks")
     }
 }
 
@@ -137,17 +163,12 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
-    // Build alvo atual: GPOS720 (evita conflito com libs de outros modelos)
-    implementation fileTree(
-            dir: 'libs',
-            include: ['*.jar'],
-            exclude: [
-                    'libgedi-1.16.21-gpos780-payment-release.jar',
-                    'payment-1.14.10.181016.jar'
-            ]
-    )
-    // Exemplo para .aar local em app/libs: app/libs/sitef-sdk.aar
-    // implementation(name: 'sitef-sdk', ext: 'aar')
+    // GPOS720 — PPComp Setis + GEDI 720 (os dois build types)
+    gpos720Implementation fileTree(dir: 'libs/gpos720', include: ['*.jar'])
+
+    // GPOS700 — CliSiTef homologação + ppcomp 1.29.6 (200422) + GEDI 1.14.15.
+    // A nativa que o terminal identifica é 001.29 200422, a mesma do exemplo.
+    gpos700Implementation fileTree(dir: 'libs/gpos700', include: ['*.jar'])
 
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
