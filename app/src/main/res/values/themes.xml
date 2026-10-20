@@ -6,6 +6,14 @@
         <item name="android:navigationBarColor">@color/brand_background</item>
     </style>
 
+    <!-- Mesmo tema do app: AppCompat puro não tem colorSurface e a tela TEF
+         quebra ao inflar no Android 8 do GPOS700 (a atividade morre na hora). -->
+    <style name="Theme.AppSiTefSmartPos.TefGpos700" parent="Theme.AppSiTefSmartPos">
+        <item name="android:windowBackground">@color/brand_background</item>
+        <item name="android:colorBackground">@color/brand_background</item>
+        <item name="android:statusBarColor">@color/brand_primary</item>
+    </style>
+
     <style name="Theme.AppSiTefSmartPos" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/brand_on_primary</item>

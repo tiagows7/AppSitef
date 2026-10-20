@@ -127,10 +127,12 @@ object DatasnapDownloadDecoder {
     }
 
     private fun looksLikeXml(text: String): Boolean {
-        val trimmed = text.trimStart()
+        val trimmed = text.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
         return trimmed.startsWith("<?xml", ignoreCase = true) ||
             trimmed.startsWith("<nfeProc", ignoreCase = true) ||
+            trimmed.startsWith("<nfceProc", ignoreCase = true) ||
             trimmed.startsWith("<NFe", ignoreCase = true) ||
-            trimmed.startsWith("<nfceProc", ignoreCase = true)
+            trimmed.startsWith("<enviNFe", ignoreCase = true) ||
+            trimmed.startsWith("<retEnviNFe", ignoreCase = true)
     }
 }

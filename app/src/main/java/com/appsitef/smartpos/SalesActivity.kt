@@ -23,8 +23,8 @@ import com.appsitef.smartpos.tef.TefTransactionResult
 import com.appsitef.smartpos.sales.network.AbastecimentoRemoteRepository
 import com.appsitef.smartpos.tef.CliSiTefAssetInstaller
 import com.appsitef.smartpos.tef.CliSiTefConstants
-import com.appsitef.smartpos.tef.CliSiTefIHolder
 import com.appsitef.smartpos.tef.GertecPinpadBootstrap
+import com.appsitef.smartpos.tef.GertecTefPinpad
 import com.appsitef.smartpos.tef.TefPreferences
 import com.appsitef.smartpos.ui.MoneyInputMask
 import com.google.android.material.button.MaterialButton
@@ -139,8 +139,9 @@ class SalesActivity : AppCompatActivity() {
         }
 
         CliSiTefAssetInstaller.ensureInstalled(this)
-        GertecPinpadBootstrap.ensureGediReady(this)
-        CliSiTefIHolder.warmUp(this)
+        if (GertecTefPinpad.shouldInitGediBeforeSale()) {
+            GertecPinpadBootstrap.ensureGediReady(this)
+        }
     }
 
     fun launchTefSale(amount: String, operator: String, functionId: Int): Boolean {

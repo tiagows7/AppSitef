@@ -28,6 +28,8 @@ class SaleSummaryFragment : Fragment(R.layout.fragment_sale_summary) {
     private var tilValorVenda: TextInputLayout? = null
     private var tvTotalVenda: TextView? = null
     private var btnFecharVenda: MaterialButton? = null
+    /** Último total auto-preenchido — se o usuário não alterou, acompanha a seleção. */
+    private var lastAutoFilledLimitCents: Long = 0L
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -71,6 +73,9 @@ class SaleSummaryFragment : Fragment(R.layout.fragment_sale_summary) {
             val field = etValorVenda ?: return@observe
             if (abastecimentos.isEmpty()) {
                 MoneyInputMask.setValue(field, "")
+                lastAutoFilledLimitCents = 0L
+            } else {
+                refreshSaleAmountFromAbastecimentos()
             }
             updateSaleAmountUiState()
         }
@@ -144,6 +149,10 @@ class SaleSummaryFragment : Fragment(R.layout.fragment_sale_summary) {
             }
 
             salesViewModel.setSaleData(operadorVenda, valorVenda)
+            com.appsitef.smartpos.tef.TefTraceLog.write(
+                requireContext(),
+                "fecharVenda click amount=$valorVenda op=$operadorVenda limit=$limitCents",
+            )
             val launched = (activity as? SalesActivity)?.launchTefSale(
                 amount = valorVenda,
                 operator = operadorVenda,
@@ -250,8 +259,17 @@ class SaleSummaryFragment : Fragment(R.layout.fragment_sale_summary) {
         val hasDiscount = salesViewModel.totalDesconto.value.orDefault() > 0.0
         if (limitCents <= 0L) return
 
-        if (MoneyInputMask.getCents(field) <= 0L || hasDiscount) {
+        val fieldCents = MoneyInputMask.getCents(field)
+        // Atualiza se vazio, com desconto, ainda igual ao total anterior (auto), ou acima do limite.
+        val shouldSync =
+            fieldCents <= 0L ||
+                hasDiscount ||
+                fieldCents == lastAutoFilledLimitCents ||
+                fieldCents > limitCents
+
+        if (shouldSync) {
             MoneyInputMask.setCents(field, limitCents)
+            lastAutoFilledLimitCents = limitCents
         }
     }
 

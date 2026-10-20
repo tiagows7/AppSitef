@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GPOS700: PPComp legado (br.com.gertec.ppcomp) — sem ContentProvider Setis. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- PinPadDialog / GetPIN no firmware GPOS700X. -->
+    <uses-permission android:name="wangpos.sdk4.keymanager.provider.KeyManagerContentProvider.READ_DATABASE" />
+
+    <application>
+        <!-- Tema clássico: Material3 deixa o pinpad virtual do GPOS700 em branco. -->
+        <activity
+            android:name="com.appsitef.smartpos.TefTransactionActivity"
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.AppSiTefSmartPos.TefGpos700" />
+    </application>
+</manifest>

@@ -10,3 +10,7 @@ local.properties
 *.apk
 *.aab
 app/keystore/
+.tmp*/
+.tmp-*
+*.log
+Untitled

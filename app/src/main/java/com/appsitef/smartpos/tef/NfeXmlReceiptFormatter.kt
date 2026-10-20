@@ -16,7 +16,9 @@ object NfeXmlReceiptFormatter {
     private const val TAG = "NfeXmlReceiptFormatter"
     private const val MODELO_NFE = "55"
     private const val MODELO_NFCE = "65"
-    private const val LINE_WIDTH = 50
+    /** Colunas do cupom — cabe em 1 linha na térmica GPOS (mono ~17). */
+    private const val LINE_WIDTH = 38
+    private const val SEPARATOR_WIDTH = 32
     private const val CONSULTA_NFCE_RS = "www.sefaz.rs.gov.br/nfce/consulta"
 
     fun formatForThermalPrinter(
@@ -73,7 +75,11 @@ object NfeXmlReceiptFormatter {
         val linesBeforeBarCode = mutableListOf<String>()
         val linesAfterBarCode = mutableListOf<String>()
         val sep = separator()
-        val chaveDigits = chave.filter { it.isDigit() }
+        val chaveDigits = sequenceOf(chave, data.key.orEmpty())
+            .map { it.filter { ch -> ch.isDigit() } }
+            .firstOrNull { it.length == 44 }
+            .orEmpty()
+            .ifBlank { chave.filter { it.isDigit() } }
 
         data.emitCnpj?.let { linesBeforeBarCode += "CNPJ: ${digitsOnly(it)}" }
         linesBeforeBarCode += "DANFE Simplificado da NF-e"
@@ -273,8 +279,45 @@ object NfeXmlReceiptFormatter {
             lines += "(Lei Federal 12.741/12): ${formatDelphiMoney(it)}"
         }
 
-        val qrPayload = data.qrCode?.trim()?.takeIf { it.isNotBlank() }
+        val qrPayload = data.qrCode?.let { normalizeQrCodePayload(it) }
+        if (qrPayload.isNullOrBlank()) {
+            Log.w(TAG, "buildNfceReceipt sem qrCode no XML (chave=$chave)")
+        } else {
+            Log.d(TAG, "buildNfceReceipt qrLen=${qrPayload.length}")
+        }
         return NfeThermalReceipt(text = lines.joinToString("\n"), qrCode = qrPayload)
+    }
+
+    private fun extractQrCodeFromXml(xml: String): String? {
+        val patterns = listOf(
+            """<qrCode>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*</qrCode>""",
+            """<qrCode>([\s\S]*?)</qrCode>""",
+            """<qrcode>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*</qrcode>""",
+            """<qrcode>([\s\S]*?)</qrcode>""",
+        )
+        for (pattern in patterns) {
+            val raw = Regex(pattern, RegexOption.IGNORE_CASE).find(xml)?.groupValues?.getOrNull(1)
+            val normalized = raw?.let { normalizeQrCodePayload(it) }
+            if (!normalized.isNullOrBlank()) return normalized
+        }
+        return null
+    }
+
+    private fun normalizeQrCodePayload(raw: String): String {
+        return unescapeXml(raw)
+            .replace("\r", "")
+            .replace("\n", "")
+            .trim()
+    }
+
+    private fun unescapeXml(raw: String): String {
+        return raw
+            .replace("&amp;", "&")
+            .replace("&#38;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
     }
 
     private fun parse(xml: String): NfeData {
@@ -291,7 +334,7 @@ object NfeXmlReceiptFormatter {
         var insideProd = false
         var insideDetIcms = false
 
-        var event = parser.eventType
+        var event = parser.nextToken()
         while (event != XmlPullParser.END_DOCUMENT) {
             when (event) {
                 XmlPullParser.START_TAG -> {
@@ -312,10 +355,10 @@ object NfeXmlReceiptFormatter {
                     textStack.addLast(tag)
                 }
 
-                XmlPullParser.TEXT -> {
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> {
                     val value = parser.text?.trim().orEmpty()
                     if (value.isEmpty() || textStack.isEmpty()) {
-                        event = parser.next()
+                        event = parser.nextToken()
                         continue
                     }
                     val tag = textStack.last()
@@ -372,7 +415,9 @@ object NfeXmlReceiptFormatter {
                         "tpNF" -> if (data.tpNf.isNullOrBlank()) data.tpNf = value
                         "nNF" -> if (data.number.isNullOrBlank()) data.number = value
                         "dhEmi", "dEmi" -> if (data.emission.isNullOrBlank()) data.emission = value
-                        "qrCode" -> if (data.qrCode.isNullOrBlank()) data.qrCode = value
+                        "qrCode", "qrcode" -> if (data.qrCode.isNullOrBlank()) {
+                            data.qrCode = normalizeQrCodePayload(value)
+                        }
                         "urlChave" -> if (data.urlChave.isNullOrBlank()) data.urlChave = value
                         "infCpl" -> if (textStack.contains("infAdic") && data.infCpl.isNullOrBlank()) {
                             data.infCpl = value
@@ -428,7 +473,7 @@ object NfeXmlReceiptFormatter {
                     if (textStack.isNotEmpty()) textStack.removeLast()
                 }
             }
-            event = parser.next()
+            event = parser.nextToken()
         }
 
         data.items.addAll(detItems.filter { it.description.isNotBlank() || !it.code.isNullOrBlank() })
@@ -442,8 +487,14 @@ object NfeXmlReceiptFormatter {
         fun firstMatch(pattern: String): String? =
             Regex(pattern, RegexOption.IGNORE_CASE).find(xml)?.groupValues?.getOrNull(1)?.trim()
 
-        if (data.qrCode.isNullOrBlank()) data.qrCode = firstMatch("""<qrCode>([^<]+)</qrCode>""")
-        if (data.urlChave.isNullOrBlank()) data.urlChave = firstMatch("""<urlChave>([^<]+)</urlChave>""")
+        if (data.qrCode.isNullOrBlank()) {
+            data.qrCode = extractQrCodeFromXml(xml)
+        }
+        if (data.urlChave.isNullOrBlank()) {
+            data.urlChave = firstMatch("""<urlChave>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?</urlChave>""")
+                ?.let { unescapeXml(it) }
+                ?.trim()
+        }
         if (data.protocolo.isNullOrBlank()) data.protocolo = firstMatch("""<nProt>([^<]+)</nProt>""")
         if (data.dataAutorizacao.isNullOrBlank()) {
             data.dataAutorizacao = firstMatch("""<dhRecbto>([^<]+)</dhRecbto>""")
@@ -565,7 +616,7 @@ object NfeXmlReceiptFormatter {
         else -> "PIX"
     }
 
-    private fun separator(): String = "-".repeat(LINE_WIDTH)
+    private fun separator(): String = ".".repeat(SEPARATOR_WIDTH)
 
     private fun addWrappedLines(lines: MutableList<String>, text: String) {
         if (text.isBlank()) return

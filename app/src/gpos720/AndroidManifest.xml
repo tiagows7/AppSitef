@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Obrigatório GPOS720 (PPComp Setis): inicializa biblioteca pinpad -->
+        <provider
+            android:name="br.com.setis.gpos720.Content"
+            android:authorities="PPCompGPOS760"
+            android:enabled="true"
+            android:exported="false" />
+    </application>
+</manifest>

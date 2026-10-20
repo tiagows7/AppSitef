@@ -1,0 +1,46 @@
+---
+description: Após alterações no app, gerar o APK debug automaticamente
+alwaysApply: true
+---
+
+# Gerar APK após alterações
+
+Sempre que fizer mudanças de código, resources, Gradle ou assets que afetem o app Android, **gera o APK debug ao final da tarefa**, sem o usuário pedir.
+
+## Comando (padrão = GPOS720)
+
+```powershell
+$env:JAVA_HOME="C:\Program Files\Android\Android Studio\jbr"
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+cd "g:\programas\kotlin\appsitef"
+.\gradlew.bat :app:assembleGpos720Debug
+```
+
+Para GPOS700:
+
+```powershell
+.\gradlew.bat :app:assembleGpos700Debug
+```
+
+Se o APK sair truncado (bem menor que ~12 MB), rode clean e monte de novo:
+
+```powershell
+.\gradlew.bat :app:clean :app:assembleGpos720Debug
+```
+
+## Saída
+
+APK esperado (720):
+
+`G:\programas\kotlin\appsitef\app\build\outputs\apk\gpos720\debug\siscom-pos-gpos720-debug.apk`
+
+APK GPOS700:
+
+`G:\programas\kotlin\appsitef\app\build\outputs\apk\gpos700\debug\siscom-pos-gpos700-debug.apk`
+
+Ao terminar, informe o caminho e o tamanho/hora do arquivo.
+
+## Quando NÃO gerar
+
+- Perguntas só de explicação / leitura, sem editar arquivos do app
+- Alterações só em docs/regras que não entram no build

@@ -55,6 +55,7 @@
     <string name="sale_completed_reset">Venda concluída. Pronto para nova venda.</string>
     <string name="tef_operator_message_title">Mensagem ao operador</string>
     <string name="tef_operator_message_waiting">Aguardando instruções do SiTef…</string>
+    <string name="tef_connecting_server">Conectando servidor SiTef…</string>
     <string name="tef_cancel_pending">Cancelando transação pendente…</string>
     <string name="tef_log_title">Histórico da transação</string>
     <string name="tef_pix_qr_title">Pagamento PIX</string>
@@ -71,6 +72,7 @@
     <string name="tef_printing_nfe">Baixando e imprimindo cupom fiscal…</string>
     <string name="tef_print_nfe_error">Erro ao imprimir cupom fiscal: %1$s</string>
     <string name="tef_print_nfe_chave_missing">Movimento registrado, mas o servidor não retornou a chave da nota.</string>
+    <string name="tef_print_nfe_unavailable">Cupom fiscal indisponível (venda sem chave da nota no servidor).</string>
     <string name="tef_print_nfe_success">Cupom fiscal enviado à impressora.</string>
     <string name="tef_totals_title">Totais do terminal</string>
     <string name="tef_totals_session_not_started">Abertura: —</string>
@@ -110,6 +112,8 @@
     <string name="tef_admin_pending_done">Transação T.E.F. realizada com sucesso. Para reimpressão, favor solicitar o último cupom.</string>
     <string name="tef_admin_pending_none">Nenhuma transação pendente.</string>
     <string name="tef_pending_checking">Verificando transações pendentes…</string>
+    <string name="tef_pending_query_failed">Não foi possível consultar as transações pendentes. A venda não foi cancelada.</string>
+    <string name="tef_pending_configure_failed">Não foi possível verificar as pendências (%1$s). A venda não foi cancelada.</string>
     <string name="tef_reversing_sale">Estornando transação (falha na impressão)…</string>
     <string name="tef_sale_reversed_print_failure">Venda não confirmada: o comprovante TEF não pôde ser impresso. Transação estornada.</string>
     <string name="tef_menu_title_payment">Forma de pagamento</string>

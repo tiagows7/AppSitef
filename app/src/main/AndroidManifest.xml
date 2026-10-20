@@ -16,13 +16,6 @@
         android:theme="@style/Theme.AppSiTefSmartPos"
         android:usesCleartextTraffic="true">
 
-        <!-- Obrigatório GPOS720 (PPComp): inicializa biblioteca pinpad — igual ModuloPosSitef Delphi -->
-        <provider
-            android:name="br.com.setis.gpos720.Content"
-            android:authorities="PPCompGPOS760"
-            android:enabled="true"
-            android:exported="false" />
-
         <activity
             android:name=".ConfigurationActivity"
             android:exported="false" />
